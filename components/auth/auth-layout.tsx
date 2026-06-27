@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, type Variants } from "framer-motion";
 import { Wifi, Shield, Zap, Globe } from "lucide-react";
 
 const FEATURES = [
@@ -11,10 +11,10 @@ const FEATURES = [
   { icon: Wifi, text: "No physical SIM. No store visit." },
 ];
 
-const floatVariants = {
+const floatVariants: Variants = {
   animate: {
     y: [0, -12, 0],
-    transition: { duration: 4, repeat: Infinity, ease: "easeInOut" },
+    transition: { duration: 4, repeat: Infinity, ease: "easeInOut" as const },
   },
 };
 
