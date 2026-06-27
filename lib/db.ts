@@ -1,24 +1,26 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Prisma client singleton — avoids multiple connections in dev (hot reload)
-// Using dynamic require because prisma generate hasn't run yet without a DB.
-
-let db: any;
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "@prisma/client";
 
 declare const globalThis: { _prisma?: any } & typeof global;
 
-if (!globalThis._prisma) {
+function createPrismaClient() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) return null;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { PrismaClient } = require("@prisma/client");
-    globalThis._prisma = new PrismaClient({
-      log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
-    });
+    const adapter = new PrismaPg({ connectionString });
+    return new PrismaClient({
+      adapter,
+      log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+    } as any);
   } catch {
-    // PrismaClient not yet generated — run `npx prisma generate`
-    globalThis._prisma = null;
+    return null;
   }
 }
 
-db = globalThis._prisma;
+if (!globalThis._prisma) {
+  globalThis._prisma = createPrismaClient();
+}
 
+const db = globalThis._prisma;
 export { db };
