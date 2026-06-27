@@ -1,0 +1,123 @@
+export const siteConfig = {
+  name: "Simkuu",
+  tagline: "Premium USA Carrier eSIM Marketplace",
+  description:
+    "The most premium USA eSIM marketplace. Get instant access to T-Mobile, Verizon, AT&T, and MVNO eSIMs with no contracts and lightning-fast activation.",
+  url: "https://simkuu.com",
+  ogImage: "/images/og.jpg",
+  email: "support@simkuu.com",
+  social: {
+    twitter: "https://twitter.com/simkuu",
+    instagram: "https://instagram.com/simkuu",
+    linkedin: "https://linkedin.com/company/simkuu",
+  },
+  carriers: [
+    {
+      id: "tmobile",
+      name: "T-Mobile",
+      description: "Nationwide 5G coverage with the most towers in the USA",
+      color: "#E20074",
+      coverage: "99% USA Coverage",
+      network: "5G / LTE",
+      slug: "t-mobile",
+    },
+    {
+      id: "verizon",
+      name: "Verizon",
+      description: "America's most reliable network, trusted since 1983",
+      color: "#CD040B",
+      coverage: "98% USA Coverage",
+      network: "5G Ultra Wideband",
+      slug: "verizon",
+    },
+    {
+      id: "att",
+      name: "AT&T",
+      description: "First responder trusted network with deep urban coverage",
+      color: "#00A8E0",
+      coverage: "97% USA Coverage",
+      network: "5G / FirstNet",
+      slug: "att",
+    },
+    {
+      id: "mvno",
+      name: "T-Mobile MVNO",
+      description: "T-Mobile backbone at a fraction of the retail price",
+      color: "#8B5CF6",
+      coverage: "99% USA Coverage",
+      network: "5G / LTE",
+      slug: "t-mobile-mvno",
+    },
+  ],
+  stats: [
+    { label: "eSIMs Activated", value: "250K+", suffix: "" },
+    { label: "USA Coverage", value: "99", suffix: "%" },
+    { label: "Avg Activation Time", value: "< 2", suffix: "min" },
+    { label: "Customer Rating", value: "4.9", suffix: "/5" },
+  ],
+  features: [
+    { icon: "Zap", label: "Instant QR Delivery", description: "Receive your eSIM QR code instantly after purchase" },
+    { icon: "Shield", label: "No Contract", description: "Cancel anytime, no hidden fees or long-term commitments" },
+    { icon: "Wifi", label: "Unlimited Data", description: "True unlimited data with no speed throttling" },
+    { icon: "Phone", label: "Unlimited Calls", description: "Unlimited calling across the entire USA" },
+    { icon: "MessageSquare", label: "Unlimited SMS", description: "Text as much as you want, always included" },
+    { icon: "Signal", label: "5G Ready", description: "Access to America's fastest 5G networks" },
+    { icon: "Globe", label: "Hotspot Included", description: "Share your connection with up to 10 devices" },
+    { icon: "Headphones", label: "Premium Support", description: "24/7 expert support via chat, email, and phone" },
+    { icon: "Clock", label: "Fast Activation", description: "Be connected in under 2 minutes" },
+  ],
+  howItWorks: [
+    { step: 1, title: "Choose Your Plan", description: "Select a carrier and data plan that fits your needs" },
+    { step: 2, title: "Instant Purchase", description: "Checkout securely with Stripe, PayPal, or crypto" },
+    { step: 3, title: "Receive QR Code", description: "Your eSIM QR code is delivered instantly to your email" },
+    { step: 4, title: "Scan & Activate", description: "Scan the QR code in your phone settings and go live" },
+  ],
+  nav: {
+    main: [
+      { label: "Plans", href: "/plans" },
+      { label: "Coverage", href: "/coverage" },
+      {
+        label: "Carriers",
+        href: "#",
+        children: [
+          { label: "T-Mobile", href: "/t-mobile" },
+          { label: "Verizon", href: "/verizon" },
+          { label: "AT&T", href: "/att" },
+          { label: "T-Mobile MVNO", href: "/t-mobile-mvno" },
+        ],
+      },
+      { label: "Pricing", href: "/pricing" },
+      { label: "Blog", href: "/blog" },
+    ],
+    auth: [
+      { label: "Log In", href: "/login" },
+      { label: "Get Started", href: "/plans" },
+    ],
+  },
+  footer: {
+    company: [
+      { label: "About", href: "/about" },
+      { label: "Blog", href: "/blog" },
+      { label: "Careers", href: "/careers" },
+      { label: "Contact", href: "/contact" },
+    ],
+    product: [
+      { label: "Plans", href: "/plans" },
+      { label: "Coverage", href: "/coverage" },
+      { label: "Pricing", href: "/pricing" },
+      { label: "FAQ", href: "/faq" },
+    ],
+    legal: [
+      { label: "Privacy Policy", href: "/privacy" },
+      { label: "Terms of Service", href: "/terms" },
+      { label: "Refund Policy", href: "/refund" },
+    ],
+    support: [
+      { label: "Help Center", href: "/support" },
+      { label: "Knowledge Base", href: "/kb" },
+      { label: "Status", href: "/status" },
+    ],
+  },
+} as const;
+
+export type SiteConfig = typeof siteConfig;

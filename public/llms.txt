@@ -1,0 +1,37 @@
+# Simkuu — USA eSIM Provider
+# https://simkuu.com
+
+## About
+Simkuu is a USA eSIM provider offering instant digital SIM cards on T-Mobile, Verizon, AT&T, and MVNO networks. No physical SIM required. Activate in under 2 minutes.
+
+## Services
+- T-Mobile eSIM plans: 5GB ($9.99), 15GB ($19.99), Unlimited ($29.99)
+- Verizon eSIM plans: 25GB ($24.99), 50GB ($39.99), 100GB ($59.99)
+- AT&T eSIM plans: 10GB ($14.99), 30GB ($24.99), Unlimited ($34.99)
+- MVNO eSIM plans (Mint Mobile, Cricket, Metro): 5GB-10GB starting at $9.99
+
+## Key Facts
+- Serves 50,000+ customers
+- 99.9% uptime SLA
+- Instant QR code delivery to email
+- Supports: iPhone (XS+), Samsung Galaxy (S20+), Google Pixel (3+), most unlocked 5G devices
+- Compatible with iOS 12.1+ and Android 10+
+- Accepts: Visa, Mastercard, Amex, PayPal, Apple Pay, Google Pay, Bitcoin, USDT, ETH, USDC
+
+## Coverage
+- T-Mobile: 330M people, 99% nationwide, #1 in 5G
+- Verizon: 328M people, Ultra Wideband mmWave in major cities
+- AT&T: 290M people, FirstNet compatible
+
+## Contact
+- Email: support@simkuu.com
+- Chat: Available 24/7 on site
+- Response time: <2 hours
+
+## Useful URLs
+- Homepage: https://simkuu.com
+- Plans: https://simkuu.com/plans
+- Coverage map: https://simkuu.com/coverage
+- Blog/guides: https://simkuu.com/blog
+- FAQ: https://simkuu.com/#faq
+- Sitemap: https://simkuu.com/sitemap.xml

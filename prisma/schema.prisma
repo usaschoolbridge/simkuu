@@ -1,0 +1,395 @@
+// ============================================================
+// BULK eSIM PROVIDER — DATABASE SCHEMA
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---- ENUMS ----
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum CarrierId {
+  TMOBILE
+  VERIZON
+  ATT
+  MVNO
+}
+
+enum PlanInterval {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum PlanTier {
+  STARTER
+  STANDARD
+  PREMIUM
+  UNLIMITED
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentProvider {
+  STRIPE
+  PAYPAL
+  CRYPTO
+  APPLE_PAY
+  GOOGLE_PAY
+}
+
+enum ActivationStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum BlogStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+// ---- MODELS ----
+
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  emailVerified      DateTime?
+  name               String?
+  image              String?
+  hashedPassword     String?
+  phone              String?
+  role               UserRole  @default(USER)
+  twoFactorEnabled   Boolean   @default(false)
+  twoFactorSecret    String?
+  walletBalance      Decimal   @default(0) @db.Decimal(10, 2)
+  referralCode       String    @unique @default(cuid())
+  referredById       String?
+  referredBy         User?     @relation("Referrals", fields: [referredById], references: [id])
+  referrals          User[]    @relation("Referrals")
+  stripeCustomerId   String?   @unique
+
+  accounts           Account[]
+  sessions           Session[]
+  orders             Order[]
+  esims              ESim[]
+  tickets            SupportTicket[]
+  ticketMessages     TicketMessage[]
+  notifications      Notification[]
+  rewards            Reward[]
+  referralEarnings   ReferralEarning[]
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([email])
+  @@index([referralCode])
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String? @db.Text
+  access_token       String? @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String? @db.Text
+  session_state      String?
+
+  user               User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Carrier {
+  id          CarrierId @id
+  name        String
+  slug        String    @unique
+  description String    @db.Text
+  color       String
+  logo        String
+  coverage    String
+  network     String
+  isActive    Boolean   @default(true)
+
+  plans       Plan[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Plan {
+  id             String       @id @default(cuid())
+  name           String
+  carrierId      CarrierId
+  carrier        Carrier      @relation(fields: [carrierId], references: [id])
+  tier           PlanTier
+  interval       PlanInterval
+  price          Decimal      @db.Decimal(10, 2)
+  originalPrice  Decimal?     @db.Decimal(10, 2)
+  data           String
+  calls          String
+  sms            String
+  hotspot        Boolean      @default(false)
+  fiveG          Boolean      @default(false)
+  voip           Boolean      @default(false)
+  international  Boolean      @default(false)
+  features       String[]
+  badge          String?
+  stripePriceId  String       @unique
+  isActive       Boolean      @default(true)
+  sortOrder      Int          @default(0)
+
+  orders         Order[]
+  esims          ESim[]
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([carrierId])
+  @@index([interval])
+}
+
+model ESim {
+  id             String           @id @default(cuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id])
+  orderId        String           @unique
+  order          Order            @relation(fields: [orderId], references: [id])
+  planId         String
+  plan           Plan             @relation(fields: [planId], references: [id])
+  carrier        CarrierId
+  iccid          String           @unique
+  qrCode         String           @db.Text
+  activationCode String           @db.Text
+  status         ActivationStatus @default(PENDING)
+  activatedAt    DateTime?
+  expiresAt      DateTime?
+  dataUsedMb     Int              @default(0)
+  dataLimitMb    Int?
+
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([userId])
+  @@index([iccid])
+}
+
+model Order {
+  id              String          @id @default(cuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id])
+  planId          String
+  plan            Plan            @relation(fields: [planId], references: [id])
+  status          OrderStatus     @default(PENDING)
+  amount          Decimal         @db.Decimal(10, 2)
+  currency        String          @default("USD")
+  paymentProvider PaymentProvider
+  paymentId       String?
+  invoiceUrl      String?
+  couponId        String?
+  coupon          Coupon?         @relation(fields: [couponId], references: [id])
+  discountAmount  Decimal?        @db.Decimal(10, 2)
+  metadata        Json?
+
+  esim            ESim?
+  invoice         Invoice?
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([paymentId])
+}
+
+model Invoice {
+  id          String   @id @default(cuid())
+  orderId     String   @unique
+  order       Order    @relation(fields: [orderId], references: [id])
+  invoiceNo   String   @unique
+  amount      Decimal  @db.Decimal(10, 2)
+  currency    String   @default("USD")
+  pdfUrl      String?
+  issuedAt    DateTime @default(now())
+  dueAt       DateTime?
+  paidAt      DateTime?
+
+  createdAt   DateTime @default(now())
+}
+
+model Coupon {
+  id                  String       @id @default(cuid())
+  code                String       @unique
+  discountType        DiscountType
+  discountValue       Decimal      @db.Decimal(10, 2)
+  maxUses             Int?
+  usedCount           Int          @default(0)
+  expiresAt           DateTime?
+  applicableCarriers  CarrierId[]
+  applicablePlans     String[]
+  minOrderAmount      Decimal?     @db.Decimal(10, 2)
+  isActive            Boolean      @default(true)
+
+  orders              Order[]
+
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  @@index([code])
+}
+
+model ReferralEarning {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  amount      Decimal  @db.Decimal(10, 2)
+  orderId     String
+  isPaid      Boolean  @default(false)
+  paidAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Reward {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  points      Int
+  action      String
+  description String?
+  expiresAt   DateTime?
+  isUsed      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+model SupportTicket {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id])
+  subject     String
+  status      TicketStatus    @default(OPEN)
+  priority    TicketPriority  @default(MEDIUM)
+  messages    TicketMessage[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model TicketMessage {
+  id          String        @id @default(cuid())
+  ticketId    String
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id])
+  authorId    String
+  author      User          @relation(fields: [authorId], references: [id])
+  isAgent     Boolean       @default(false)
+  content     String        @db.Text
+  attachments String[]
+  createdAt   DateTime      @default(now())
+
+  @@index([ticketId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  body      String
+  type      String
+  href      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}
+
+model BlogPost {
+  id          String     @id @default(cuid())
+  title       String
+  slug        String     @unique
+  excerpt     String
+  content     String     @db.Text
+  coverImage  String?
+  author      String
+  tags        String[]
+  status      BlogStatus @default(DRAFT)
+  publishedAt DateTime?
+  readTime    Int        @default(5)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([slug])
+  @@index([status])
+}
+
+model SiteSettings {
+  id         String   @id @default(cuid())
+  key        String   @unique
+  value      Json
+  updatedAt  DateTime @updatedAt
+}
