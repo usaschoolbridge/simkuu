@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Copy, Check, Clock, AlertCircle, RefreshCw, ChevronRight } from "lucide-react";
 import { CRYPTO_CURRENCIES } from "@/lib/payments/crypto";
 
+type CryptoCoin = typeof CRYPTO_CURRENCIES[number];
+
 interface CryptoPaymentProps {
   planId: string;
   planName: string;
@@ -42,7 +44,7 @@ function QrGrid({ address }: { address: string }) {
 }
 
 export function CryptoPayment({ planId, planName, usdAmount, onSuccess }: CryptoPaymentProps) {
-  const [selectedCoin, setSelectedCoin] = useState(CRYPTO_CURRENCIES[2]); // USDT ERC-20 default
+  const [selectedCoin, setSelectedCoin] = useState<CryptoCoin>(CRYPTO_CURRENCIES[2]); // USDT ERC-20 default
   const [paymentData, setPaymentData] = useState<{
     ref: string; address: string; amount: number; expiresAt: string;
   } | null>(null);
