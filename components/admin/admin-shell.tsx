@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -10,7 +11,10 @@ import {
   Wifi, LogOut, Zap, Globe, ChevronDown
 } from "lucide-react";
 
-const NAV_GROUPS = [
+type NavItem = { label: string; href: string; icon: React.ComponentType<{ className?: string }>; badge?: string; badgeColor?: string };
+type NavGroup = { label: string; items: NavItem[] };
+
+const NAV_GROUPS: NavGroup[] = [
   {
     label: "Core",
     items: [
