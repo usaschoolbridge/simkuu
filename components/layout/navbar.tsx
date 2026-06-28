@@ -3,16 +3,31 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion";
-import { Menu, X, ChevronDown, Zap } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Menu, X, ChevronDown, Wifi } from "lucide-react";
 import { siteConfig } from "@/config/site";
+import { cn } from "@/lib/utils";
 
 type NavItem = {
   label: string;
   href: string;
   children?: { label: string; href: string }[];
 };
-import { cn } from "@/lib/utils";
+
+export function SimkuuLogo({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
+  const iconSize = size === "sm" ? "w-7 h-7" : size === "lg" ? "w-10 h-10" : "w-8 h-8";
+  const iconInner = size === "sm" ? "w-3.5 h-3.5" : size === "lg" ? "w-5 h-5" : "w-4 h-4";
+  const textSize = size === "sm" ? "text-base" : size === "lg" ? "text-2xl" : "text-[18px]";
+  return (
+    <div className="flex items-center gap-2.5">
+      <div className={cn("rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/20 flex-shrink-0", iconSize)}>
+        <Wifi className={cn("text-white", iconInner)} />
+      </div>
+      <span className={cn("font-black text-black tracking-tight leading-none", textSize)} style={{ fontFamily: "var(--font-space-grotesk)" }}>
+        Simkuu
+      </span>
+    </div>
+  );
+}
 
 export function Navbar() {
   const [open, setOpen] = useState(false);
@@ -47,17 +62,10 @@ export function Navbar() {
       <div className="container-xl">
         <div className="flex items-center justify-between h-16 md:h-18">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5 group">
-            <motion.div
-              className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg"
-              whileHover={{ scale: 1.05, rotate: 5 }}
-              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            >
-              <Zap className="w-4 h-4 text-white" />
+          <Link href="/" aria-label="Simkuu home">
+            <motion.div whileHover={{ scale: 1.02 }} transition={{ duration: 0.2 }}>
+              <SimkuuLogo />
             </motion.div>
-            <span className="font-display font-bold text-lg text-black tracking-tight">
-              Bulk<span className="text-gradient">eSIM</span>
-            </span>
           </Link>
 
           {/* Desktop Nav */}
@@ -123,14 +131,14 @@ export function Navbar() {
           {/* Desktop CTA */}
           <div className="hidden md:flex items-center gap-2">
             <Link href="/login">
-              <Button variant="ghost" size="sm" className="text-black/60 hover:text-black">
+              <button className="px-4 py-2 rounded-full text-sm font-medium text-black/60 hover:text-black hover:bg-black/[0.05] transition-all duration-200">
                 Log In
-              </Button>
+              </button>
             </Link>
             <Link href="/plans">
-              <Button variant="gradient" size="sm">
+              <button className="px-5 py-2 rounded-full text-sm font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:opacity-90 transition-opacity shadow-md shadow-blue-500/20">
                 Get Started
-              </Button>
+              </button>
             </Link>
           </div>
 
@@ -200,12 +208,16 @@ export function Navbar() {
                   )}
                 </motion.div>
               ))}
-              <div className="pt-4 pb-2 flex flex-col gap-2">
+              <div className="pt-4 pb-2 flex flex-col gap-2.5 border-t border-black/[0.06] mt-3">
                 <Link href="/login" onClick={() => setOpen(false)}>
-                  <Button variant="outline" className="w-full">Log In</Button>
+                  <button className="w-full py-2.5 rounded-full border border-black/10 text-sm font-medium text-black/70 hover:bg-black/[0.04] transition-colors">
+                    Log In
+                  </button>
                 </Link>
                 <Link href="/plans" onClick={() => setOpen(false)}>
-                  <Button variant="gradient" className="w-full">Get Started</Button>
+                  <button className="w-full py-2.5 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-semibold hover:opacity-90 transition-opacity shadow-md shadow-blue-500/20">
+                    Get Started →
+                  </button>
                 </Link>
               </div>
             </div>

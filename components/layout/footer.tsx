@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Zap, ArrowUpRight } from "lucide-react";
+import { Wifi, ArrowUpRight, Mail, MapPin } from "lucide-react";
 // Social icons via simple SVG since lucide v0.400+ renamed these
 function TwitterIcon() {
   return <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.845L1.254 2.25H8.08l4.259 5.633L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z"/></svg>;
@@ -14,7 +14,6 @@ function LinkedinIcon() {
   return <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>;
 }
 import { siteConfig } from "@/config/site";
-import { Button } from "@/components/ui/button";
 import { useState } from "react";
 
 export function Footer() {
@@ -62,9 +61,9 @@ export function Footer() {
                     className="w-full h-12 px-4 rounded-full border border-black/10 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition-all"
                   />
                 </div>
-                <Button variant="gradient" size="lg" type="submit" className="shrink-0">
+                <button type="submit" className="shrink-0 h-12 px-6 rounded-full text-sm font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:opacity-90 transition-opacity shadow-md shadow-blue-500/20">
                   Subscribe
-                </Button>
+                </button>
               </form>
             )}
           </div>
@@ -77,16 +76,26 @@ export function Footer() {
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
             <Link href="/" className="flex items-center gap-2.5 mb-4">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                <Zap className="w-4 h-4 text-white" />
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-md shadow-blue-500/20">
+                <Wifi className="w-4 h-4 text-white" />
               </div>
-              <span className="font-display font-bold text-lg text-black">
-                Bulk<span className="text-gradient">eSIM</span>
+              <span className="font-black text-lg text-black tracking-tight" style={{ fontFamily: "var(--font-space-grotesk)" }}>
+                Simkuu
               </span>
             </Link>
-            <p className="text-sm text-black/40 leading-relaxed mb-6">
+            <p className="text-sm text-black/40 leading-relaxed mb-4">
               Premium USA carrier eSIMs. No contracts. Instant activation.
             </p>
+            <div className="space-y-2 mb-6">
+              <a href="mailto:support@simkuu.com" className="flex items-center gap-2 text-sm text-black/40 hover:text-black transition-colors">
+                <Mail className="w-3.5 h-3.5 flex-shrink-0" />
+                support@simkuu.com
+              </a>
+              <div className="flex items-center gap-2 text-sm text-black/40">
+                <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+                United States
+              </div>
+            </div>
             <div className="flex items-center gap-3">
               {[
                 { icon: TwitterIcon, href: siteConfig.social.twitter, label: "Twitter" },
