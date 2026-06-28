@@ -32,12 +32,26 @@ export function LoginForm() {
   const onSubmit = async (data: LoginValues) => {
     setServerError(null);
     try {
-      // In production: const result = await signIn("credentials", { ...data, redirect: false })
-      await new Promise((r) => setTimeout(r, 1500));
-      // Simulate success
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: data.email,
+          password: data.password,
+          rememberMe: !!data.remember,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setServerError(json.error || "Invalid email or password. Please try again.");
+        return;
+      }
       setSuccess(true);
+      setTimeout(() => {
+        window.location.href = "/dashboard";
+      }, 600);
     } catch {
-      setServerError("Invalid email or password. Please try again.");
+      setServerError("Network error. Please try again.");
     }
   };
 

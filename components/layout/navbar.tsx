@@ -135,7 +135,7 @@ export function Navbar() {
                 Log In
               </button>
             </Link>
-            <Link href="/plans">
+            <Link href="/signup">
               <button className="px-5 py-2 rounded-full text-sm font-semibold text-white bg-gradient-to-r from-blue-500 to-purple-600 hover:opacity-90 transition-opacity shadow-md shadow-blue-500/20">
                 Get Started
               </button>
@@ -214,7 +214,7 @@ export function Navbar() {
                     Log In
                   </button>
                 </Link>
-                <Link href="/plans" onClick={() => setOpen(false)}>
+                <Link href="/signup" onClick={() => setOpen(false)}>
                   <button className="w-full py-2.5 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-semibold hover:opacity-90 transition-opacity shadow-md shadow-blue-500/20">
                     Get Started →
                   </button>

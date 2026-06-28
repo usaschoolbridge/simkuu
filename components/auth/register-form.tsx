@@ -50,8 +50,25 @@ export function RegisterForm() {
   const onSubmit = async (data: RegisterValues) => {
     setServerError(null);
     try {
-      await new Promise((r) => setTimeout(r, 1800));
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: data.name,
+          email: data.email,
+          password: data.password,
+          confirmPassword: data.confirmPassword,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setServerError(json.error || "Something went wrong. Please try again.");
+        return;
+      }
       setSuccess(true);
+      setTimeout(() => {
+        window.location.href = "/dashboard";
+      }, 600);
     } catch {
       setServerError("Something went wrong. Please try again.");
     }

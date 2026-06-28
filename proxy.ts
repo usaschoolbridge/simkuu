@@ -73,13 +73,11 @@ function getClientIP(req: NextRequest): string {
 // ── Auth check ────────────────────────────────────────────────────────────────
 
 function isAuthenticated(req: NextRequest): boolean {
-  // In production with NextAuth v5, check the session cookie:
-  // const sessionToken = req.cookies.get("authjs.session-token")?.value
-  //                   ?? req.cookies.get("__Secure-authjs.session-token")?.value;
-  // return !!sessionToken;
-
-  // DEMO MODE: always allow (remove once NextAuth is fully wired)
-  return true;
+  // Presence-check the JWT session cookie set by /api/auth/login + /api/auth/signup.
+  // Full cryptographic verification happens at the API / server-component layer
+  // via lib/session.ts (jsonwebtoken can't run on the edge runtime).
+  const sessionToken = req.cookies.get("simkuu_session")?.value;
+  return !!sessionToken && sessionToken.length > 20;
 }
 
 function isAdminAuthenticated(req: NextRequest): boolean {
