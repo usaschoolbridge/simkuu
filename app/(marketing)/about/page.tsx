@@ -123,6 +123,20 @@ export default function AboutPage() {
           </Reveal>
         </div>
       </section>
+
+      {/* Company info */}
+      <section className="py-16 border-t border-black/[0.06]">
+        <div className="container-xl max-w-2xl text-center">
+          <Reveal variant="fadeUp">
+            <p className="text-sm text-black/40 leading-relaxed">
+              <strong className="text-black/60">Simkuu Inc.</strong><br />
+              2093 Philadelphia Pike, Suite 1234<br />
+              Claymont, DE 19703, United States<br />
+              <a href="mailto:support@simkuu.com" className="text-blue-600 hover:underline mt-2 inline-block">support@simkuu.com</a>
+            </p>
+          </Reveal>
+        </div>
+      </section>
     </>
   );
 }
