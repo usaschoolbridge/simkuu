@@ -83,12 +83,8 @@ function isAuthenticated(req: NextRequest): boolean {
 }
 
 function isAdminAuthenticated(req: NextRequest): boolean {
-  // In production, verify the user has the ADMIN role in their JWT:
-  // const token = await getToken({ req });
-  // return token?.role === "admin";
-
-  // DEMO MODE: allow (gate with real role check in production)
-  return true;
+  const cookie = req.cookies.get("simkuu_admin_session")?.value;
+  return cookie === "authenticated";
 }
 
 // ── Main middleware ───────────────────────────────────────────────────────────
@@ -141,12 +137,9 @@ export function proxy(req: NextRequest) {
 
   // 4. Admin auth + role protection
   if (PROTECTED_ADMIN.test(pathname)) {
-    if (!isAuthenticated(req)) {
-      return NextResponse.redirect(new URL("/login?callbackUrl=/admin", req.url));
-    }
+    if (pathname === "/admin/login") return NextResponse.next();
     if (!isAdminAuthenticated(req)) {
-      // Authenticated but not admin — redirect to dashboard silently
-      return NextResponse.redirect(new URL("/dashboard", req.url));
+      return NextResponse.redirect(new URL("/admin/login", req.url));
     }
   }
 

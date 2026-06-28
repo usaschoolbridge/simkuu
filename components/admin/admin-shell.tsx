@@ -115,13 +115,22 @@ function Sidebar({ mobile = false, onClose }: { mobile?: boolean; onClose?: () =
 
       {/* Admin user */}
       <div className="border-t border-white/5 px-3 py-3">
-        <div className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-white/5 cursor-pointer transition-colors">
+        <div className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-white/5 transition-colors">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white text-xs font-black">SA</div>
           <div className="flex-1 min-w-0">
             <div className="text-xs font-semibold text-white">Super Admin</div>
             <div className="text-[10px] text-white/30">admin@simkuu.com</div>
           </div>
-          <LogOut className="w-3.5 h-3.5 text-white/20 hover:text-white/60 transition-colors" />
+          <button
+            onClick={async () => {
+              await fetch("/api/admin/auth", { method: "DELETE" });
+              window.location.href = "/admin/login";
+            }}
+            className="p-1 rounded-lg hover:bg-white/10 transition-colors"
+            title="Logout"
+          >
+            <LogOut className="w-3.5 h-3.5 text-white/30 hover:text-white/60 transition-colors" />
+          </button>
         </div>
       </div>
     </aside>
