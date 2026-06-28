@@ -16,7 +16,7 @@ export default function RefundPage() {
         { title: "Technical Failures", content: "If a technical error on our side prevents your eSIM from activating (e.g., invalid QR code, delivery failure, platform error), you are entitled to a full refund or a free replacement — your choice." },
         { title: "Carrier Network Issues", content: "Refunds are not issued for temporary carrier network outages or coverage gaps, as these are outside our control. However, we will work with you to switch to a different carrier at no additional cost." },
         { title: "Partial Refunds", content: "Partial refunds may be issued at our discretion for extenuating circumstances, such as significant service degradation over an extended period. These are evaluated case by case." },
-        { title: "Refund Processing Time", content: "Approved refunds are processed within 24 hours of approval. The time for funds to appear in your account depends on your payment provider: Stripe (3-5 business days), PayPal (1-2 business days), Crypto (varies by network)." },
+        { title: "Refund Processing Time", content: "Approved refunds are processed within 24 hours of our approval. The time for funds to appear in your account depends on your payment provider: Stripe (3–5 business days), Razorpay (5–7 business days to original payment method), PayPal (1–2 business days). Partial refunds are not available — refunds are issued for the full amount paid." },
         { title: "How to Request a Refund", content: "Email support@simkuu.com with subject 'Refund Request — [Order ID]'. Include your order ID, the reason for the refund, and whether the eSIM was activated. Our team responds within 4 hours." },
       ]}
     />

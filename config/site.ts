@@ -111,6 +111,8 @@ export const siteConfig = {
       { label: "Privacy Policy", href: "/privacy" },
       { label: "Terms of Service", href: "/terms" },
       { label: "Refund Policy", href: "/refund" },
+      { label: "Cancellation Policy", href: "/cancellation" },
+      { label: "Shipping Policy", href: "/shipping" },
     ],
     support: [
       { label: "Help Center", href: "/support" },

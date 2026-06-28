@@ -15,9 +15,15 @@ export function ContactForm() {
     resolver: zodResolver(contactSchema),
   });
 
-  const onSubmit = async (_data: ContactInput) => {
-    await new Promise((r) => setTimeout(r, 1200));
-    setSent(true);
+  const onSubmit = async (data: ContactInput) => {
+    const res = await fetch("/api/contact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (res.ok) {
+      setSent(true);
+    }
   };
 
   const inputClass = (hasError?: boolean) => cn(
