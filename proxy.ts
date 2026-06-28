@@ -137,9 +137,9 @@ export function proxy(req: NextRequest) {
 
   // 4. Admin auth + role protection
   if (PROTECTED_ADMIN.test(pathname)) {
-    if (pathname === "/admin/login") return NextResponse.next();
+    if (pathname === "/admin-login") return NextResponse.next();
     if (!isAdminAuthenticated(req)) {
-      return NextResponse.redirect(new URL("/admin/login", req.url));
+      return NextResponse.redirect(new URL("/admin-login", req.url));
     }
   }
 

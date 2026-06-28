@@ -124,7 +124,7 @@ function Sidebar({ mobile = false, onClose }: { mobile?: boolean; onClose?: () =
           <button
             onClick={async () => {
               await fetch("/api/admin/auth", { method: "DELETE" });
-              window.location.href = "/admin/login";
+              window.location.href = "/admin-login";
             }}
             className="p-1 rounded-lg hover:bg-white/10 transition-colors"
             title="Logout"
