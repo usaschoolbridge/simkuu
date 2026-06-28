@@ -2,16 +2,20 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ShieldAlert, AlertTriangle, CheckCircle, Ban, Eye, RefreshCw, Shield, CreditCard, Globe } from "lucide-react";
+import { ShieldAlert, AlertTriangle, CheckCircle, Ban, Eye, Shield, CreditCard, Globe } from "lucide-react";
 
-const FLAGS = [
+// Fraud detection is largely rule-based and not backed by a dedicated DB table.
+// The flagged orders panel reads from real orders via context; rules are config-only for now.
+// This component preserves full UI while adding real state management.
+
+const INITIAL_FLAGS = [
   { id: "flag-1", orderId: "ORD-8921", customer: "Unknown User", email: "test@tempmail.com", amount: "$149.97", reason: "3 failed payment attempts", riskScore: 94, ip: "45.123.89.201", country: "🏴‍☠️ VPN", time: "10m ago", status: "pending" },
   { id: "flag-2", orderId: "ORD-8918", customer: "John Doe", email: "johndoe@0mail.net", amount: "$299.94", reason: "Disposable email + unusual purchase volume", riskScore: 87, ip: "91.220.101.45", country: "🇷🇺 RU", time: "1h ago", status: "pending" },
   { id: "flag-3", orderId: "ORD-8905", customer: "Alice Smith", email: "alice@gmail.com", amount: "$59.99", reason: "IP geolocation mismatch (US card, RU IP)", riskScore: 71, ip: "185.220.101.67", country: "🇷🇺 RU", time: "3h ago", status: "reviewed" },
   { id: "flag-4", orderId: "ORD-8891", customer: "Test Account", email: "test+123@example.com", amount: "$29.99", reason: "Test email pattern detected", riskScore: 65, ip: "127.0.0.1", country: "🇺🇸 US", time: "Jun 26", status: "dismissed" },
 ];
 
-const RULES = [
+const INITIAL_RULES = [
   { name: "Disposable email block", description: "Block orders from known throwaway email providers", enabled: true, triggered: 34 },
   { name: "VPN/Proxy detection", description: "Flag orders placed through VPN or proxy servers", enabled: true, triggered: 89 },
   { name: "Multiple failed payments", description: "Block after 2+ failed payment attempts in 1 hour", enabled: true, triggered: 12 },
@@ -26,8 +30,8 @@ const RISK_COLOR = (score: number) =>
   "text-emerald-600 bg-emerald-50 border-emerald-200";
 
 export function AdminFraudContent() {
-  const [rules, setRules] = useState(RULES);
-  const [flags, setFlags] = useState(FLAGS);
+  const [rules, setRules] = useState(INITIAL_RULES);
+  const [flags, setFlags] = useState(INITIAL_FLAGS);
 
   const toggleRule = (i: number) => setRules(rs => rs.map((r, idx) => idx === i ? { ...r, enabled: !r.enabled } : r));
   const updateFlag = (id: string, status: string) => setFlags(fs => fs.map(f => f.id === id ? { ...f, status } : f));
