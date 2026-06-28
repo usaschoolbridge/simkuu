@@ -36,9 +36,9 @@ export function Navbar() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const { scrollY } = useScroll();
-  const navBg = useTransform(scrollY, [0, 80], ["rgba(255,255,255,0)", "rgba(255,255,255,0.85)"]);
-  const navBlur = useTransform(scrollY, [0, 80], ["blur(0px)", "blur(20px)"]);
-  const navBorder = useTransform(scrollY, [0, 80], ["rgba(0,0,0,0)", "rgba(0,0,0,0.06)"]);
+  const navBg = useTransform(scrollY, [0, 80], ["rgba(255,255,255,0.92)", "rgba(255,255,255,0.97)"]);
+  const navBlur = useTransform(scrollY, [0, 80], ["blur(12px)", "blur(20px)"]);
+  const navBorder = useTransform(scrollY, [0, 80], ["rgba(0,0,0,0.04)", "rgba(0,0,0,0.08)"]);
 
   useEffect(() => {
     return scrollY.on("change", (v) => setScrolled(v > 20));
@@ -57,7 +57,7 @@ export function Navbar() {
   return (
     <motion.header
       style={{ backgroundColor: navBg, backdropFilter: navBlur, borderBottomColor: navBorder }}
-      className="fixed top-0 left-0 right-0 z-50 border-b"
+      className="fixed top-0 left-0 right-0 z-50 border-b bg-white/90 backdrop-blur-xl"
     >
       <div className="container-xl">
         <div className="flex items-center justify-between h-16 md:h-18">
