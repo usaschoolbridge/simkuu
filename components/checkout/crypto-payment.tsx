@@ -43,7 +43,7 @@ export function CryptoPayment({
     setError("");
 
     try {
-      const res = await fetch("/api/checkout/cryptomus", {
+      const res = await fetch("/api/checkout/nowpayments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
