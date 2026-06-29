@@ -6,27 +6,23 @@ import { Wifi, ArrowLeft } from "lucide-react";
 import { CheckoutForm } from "./checkout-form";
 import { OrderSummary } from "./order-summary";
 
-// Demo plan — in production derive from URL params / cart state
-const DEMO_PLAN = {
-  id: "tmobile-unlimited",
-  name: "T-Mobile Unlimited",
-  carrier: "T-Mobile",
-  data: "Unlimited",
-  signal: "5G",
-  price: 2999,
-  originalPrice: 3999,
-  color: "from-pink-500 to-red-500",
-  features: [
-    "Unlimited 5G data",
-    "Hotspot included",
-    "No contract — cancel anytime",
-    "Instant QR code delivery",
-    "Works on all 5G unlocked devices",
-    "24/7 customer support",
-  ],
-};
+interface CheckoutPlan {
+  id: string;
+  name: string;
+  carrier: string;
+  data: string;
+  signal: string;
+  price: number;
+  originalPrice?: number;
+  color: string;
+  features: string[];
+}
 
-export function CheckoutPage() {
+interface CheckoutPageProps {
+  plan: CheckoutPlan;
+}
+
+export function CheckoutPage({ plan }: CheckoutPageProps) {
   const [discount, setDiscount] = useState(0);
 
   return (
@@ -59,13 +55,13 @@ export function CheckoutPage() {
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
           {/* Form */}
           <div className="lg:col-span-3">
-            <CheckoutForm plan={DEMO_PLAN} discount={discount} />
+            <CheckoutForm plan={plan} discount={discount} />
           </div>
 
           {/* Summary */}
           <div className="lg:col-span-2 lg:sticky lg:top-20">
             <OrderSummary
-              plan={DEMO_PLAN}
+              plan={plan}
               onCouponApply={(code, amt) => setDiscount(amt)}
             />
           </div>

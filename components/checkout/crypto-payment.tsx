@@ -85,7 +85,7 @@ export function CryptoPayment({
         </div>
         <div>
           <div className="font-semibold text-sm text-black">Pay with Cryptocurrency</div>
-          <div className="text-xs text-black/50">Powered by Cryptomus — secure, instant settlement</div>
+          <div className="text-xs text-black/50">Powered by NOWPayments — secure, instant settlement</div>
         </div>
       </div>
 
@@ -136,7 +136,7 @@ export function CryptoPayment({
       <div className="space-y-2">
         <p className="text-xs font-semibold text-black/40 uppercase tracking-wider">How it works</p>
         {[
-          { step: "1", text: "Click the button below to open the Cryptomus payment page" },
+          { step: "1", text: "Click the button below to open the NOWPayments payment page" },
           { step: "2", text: "Choose your preferred cryptocurrency (BTC, ETH, USDT, etc.)" },
           { step: "3", text: "Send the exact amount to the provided wallet address" },
           { step: "4", text: "Your eSIM is delivered instantly to your email after confirmation" },
@@ -185,7 +185,7 @@ export function CryptoPayment({
 
       <p className="text-center text-[10px] text-black/25 flex items-center justify-center gap-1">
         <Clock className="w-3 h-3" />
-        Payment link expires in 60 minutes · Powered by Cryptomus
+        Payment link expires in 60 minutes · Powered by NOWPayments
       </p>
     </div>
   );
