@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { useForm } from "react-hook-form";
@@ -28,6 +28,26 @@ export function LoginForm() {
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<LoginValues>({ resolver: zodResolver(loginSchema) });
+
+  // Surface OAuth errors redirected back from /api/auth/oauth/* callbacks
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get("error");
+    if (!err) return;
+    const messages: Record<string, string> = {
+      google_not_configured: "Google sign-in isn't set up yet. Please use email or another option.",
+      github_not_configured: "GitHub sign-in isn't set up yet. Please use email or another option.",
+      microsoft_not_configured: "Microsoft sign-in isn't set up yet. Please use email or another option.",
+      apple_not_configured: "Apple sign-in isn't set up yet. Please use email or another option.",
+      oauth_state_mismatch: "Sign-in session expired. Please try again.",
+      oauth_no_code: "Sign-in was cancelled. Please try again.",
+      oauth_no_email: "We couldn't read an email from that account. Please use email sign-up.",
+      oauth_token_failed: "Could not complete sign-in with the provider. Please try again.",
+      oauth_error: "Something went wrong during sign-in. Please try again.",
+      db_unavailable: "Service temporarily unavailable. Please try again shortly.",
+    };
+    setServerError(messages[err] ?? "Sign-in failed. Please try again.");
+  }, []);
 
   const onSubmit = async (data: LoginValues) => {
     setServerError(null);

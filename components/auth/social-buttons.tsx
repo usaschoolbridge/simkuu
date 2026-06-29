@@ -23,39 +23,63 @@ function GithubIcon() {
   );
 }
 
-export function SocialButtons({ mode }: { mode: "login" | "register" }) {
-  const [loading, setLoading] = useState<"google" | "github" | null>(null);
+function AppleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+      <path d="M17.05 12.04c-.03-2.5 2.04-3.7 2.13-3.76-1.16-1.7-2.97-1.93-3.61-1.96-1.54-.16-3 .9-3.78.9-.77 0-1.97-.88-3.24-.85-1.67.02-3.21.97-4.07 2.46-1.73 3-.44 7.45 1.25 9.89.82 1.19 1.8 2.53 3.08 2.48 1.24-.05 1.71-.8 3.21-.8 1.49 0 1.92.8 3.23.77 1.33-.02 2.18-1.21 3-2.41.94-1.38 1.33-2.72 1.35-2.79-.03-.01-2.59-.99-2.62-3.93zM14.6 4.6c.68-.83 1.14-1.98 1.01-3.13-.98.04-2.17.65-2.88 1.48-.63.73-1.18 1.9-1.03 3.02 1.09.08 2.21-.55 2.9-1.37z" />
+    </svg>
+  );
+}
 
-  const handleSocial = async (provider: "google" | "github") => {
+function MicrosoftIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M11.4 11.4H2V2h9.4v9.4z" fill="#F25022" />
+      <path d="M22 11.4h-9.4V2H22v9.4z" fill="#7FBA00" />
+      <path d="M11.4 22H2v-9.4h9.4V22z" fill="#00A4EF" />
+      <path d="M22 22h-9.4v-9.4H22V22z" fill="#FFB900" />
+    </svg>
+  );
+}
+
+type Provider = "google" | "github" | "microsoft" | "apple";
+
+const PROVIDERS: { id: Provider; name: string; icon: React.ReactNode }[] = [
+  { id: "google", name: "Google", icon: <GoogleIcon /> },
+  { id: "microsoft", name: "Microsoft", icon: <MicrosoftIcon /> },
+  { id: "apple", name: "Apple", icon: <AppleIcon /> },
+  { id: "github", name: "GitHub", icon: <GithubIcon /> },
+];
+
+export function SocialButtons({ mode }: { mode: "login" | "register" }) {
+  const [loading, setLoading] = useState<Provider | null>(null);
+
+  // Navigate to the real OAuth start route. The server redirects to the
+  // provider and, on success, back to /dashboard with a session cookie.
+  // If a provider isn't configured server-side, it bounces back to
+  // /login?error=<provider>_not_configured (shown by the login form).
+  const handleSocial = (provider: Provider) => {
     setLoading(provider);
-    // In production: signIn(provider, { callbackUrl: "/dashboard" })
-    await new Promise((r) => setTimeout(r, 1500));
-    setLoading(null);
+    window.location.href = `/api/auth/oauth/${provider}`;
   };
 
   const label = mode === "login" ? "Continue" : "Sign up";
 
   return (
     <div className="space-y-3">
-      <motion.button
-        whileTap={{ scale: 0.98 }}
-        onClick={() => handleSocial("google")}
-        disabled={loading !== null}
-        className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl border border-black/10 bg-white hover:bg-black/[0.02] transition-all text-sm font-medium text-black disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
-      >
-        {loading === "google" ? <Loader2 className="w-4 h-4 animate-spin" /> : <GoogleIcon />}
-        {label} with Google
-      </motion.button>
-
-      <motion.button
-        whileTap={{ scale: 0.98 }}
-        onClick={() => handleSocial("github")}
-        disabled={loading !== null}
-        className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl border border-black/10 bg-white hover:bg-black/[0.02] transition-all text-sm font-medium text-black disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
-      >
-        {loading === "github" ? <Loader2 className="w-4 h-4 animate-spin" /> : <GithubIcon />}
-        {label} with GitHub
-      </motion.button>
+      {PROVIDERS.map(({ id, name, icon }) => (
+        <motion.button
+          key={id}
+          type="button"
+          whileTap={{ scale: 0.98 }}
+          onClick={() => handleSocial(id)}
+          disabled={loading !== null}
+          className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl border border-black/10 bg-white hover:bg-black/[0.02] transition-all text-sm font-medium text-black disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+        >
+          {loading === id ? <Loader2 className="w-4 h-4 animate-spin" /> : icon}
+          {label} with {name}
+        </motion.button>
+      ))}
     </div>
   );
 }
