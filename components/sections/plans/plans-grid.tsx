@@ -7,6 +7,7 @@ import { Check, Zap, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Reveal } from "@/components/motion/reveal";
 import { cn } from "@/lib/utils";
+import { useCurrency } from "@/contexts/currency";
 
 type CarrierFilter = "all" | "tmobile" | "verizon" | "att" | "mvno";
 type DataFilter = "all" | "5gb" | "15gb" | "unlimited";
@@ -35,7 +36,7 @@ const DATA_LABELS: Record<string, string> = {
   all: "All Data", "5gb": "5 GB", "15gb": "15 GB", unlimited: "Unlimited",
 };
 
-function PlanCard({ plan }: { plan: typeof ALL_PLANS[0] }) {
+function PlanCard({ plan, format }: { plan: typeof ALL_PLANS[0]; format: (p: number) => string }) {
   return (
     <motion.div
       layout
@@ -77,7 +78,7 @@ function PlanCard({ plan }: { plan: typeof ALL_PLANS[0] }) {
 
         {/* Price */}
         <div className="flex items-baseline gap-1 mb-4">
-          <span className="font-display text-3xl font-black text-black">${plan.price}</span>
+          <span className="font-display text-3xl font-black text-black">{format(plan.price)}</span>
           <span className="text-black/40 text-sm">/mo</span>
         </div>
 
@@ -114,6 +115,7 @@ export function PlansGrid() {
   const [carrier, setCarrier] = useState<CarrierFilter>("all");
   const [data, setData] = useState<DataFilter>("all");
   const [sort, setSort] = useState<SortBy>("popular");
+  const { format, currency } = useCurrency();
 
   const filtered = ALL_PLANS
     .filter((p) => carrier === "all" || p.carrier === carrier)
@@ -172,9 +174,9 @@ export function PlansGrid() {
           </div>
         </Reveal>
 
-        {/* Results count */}
+        {/* Results count + currency badge */}
         <Reveal variant="fadeIn" className="mb-6">
-          <div className="flex items-center gap-2 text-sm text-black/40">
+          <div className="flex items-center gap-2 text-sm text-black/40 flex-wrap">
             <SlidersHorizontal className="w-4 h-4" />
             Showing <span className="font-semibold text-black">{filtered.length}</span> plans
             {carrier !== "all" && (
@@ -182,6 +184,9 @@ export function PlansGrid() {
                 Clear <X className="w-3 h-3" />
               </button>
             )}
+            <span className="ml-auto inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-600 text-xs font-semibold border border-blue-100">
+              {currency === "INR" ? "₹ Prices in Indian Rupees" : "$ Prices in US Dollars"}
+            </span>
           </div>
         </Reveal>
 
@@ -189,7 +194,7 @@ export function PlansGrid() {
         <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           <AnimatePresence mode="popLayout">
             {filtered.map((plan) => (
-              <PlanCard key={plan.id} plan={plan} />
+              <PlanCard key={plan.id} plan={plan} format={format} />
             ))}
           </AnimatePresence>
         </motion.div>

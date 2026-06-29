@@ -6,6 +6,7 @@ import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion"
 import { Menu, X, ChevronDown, Wifi } from "lucide-react";
 import { siteConfig } from "@/config/site";
 import { cn } from "@/lib/utils";
+import { useCurrency } from "@/contexts/currency";
 
 type NavItem = {
   label: string;
@@ -34,6 +35,7 @@ export function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { currency, setCurrency } = useCurrency();
 
   const { scrollY } = useScroll();
   const navBg = useTransform(scrollY, [0, 80], ["rgba(255,255,255,0.92)", "rgba(255,255,255,0.97)"]);
@@ -130,6 +132,32 @@ export function Navbar() {
 
           {/* Desktop CTA */}
           <div className="hidden md:flex items-center gap-2">
+            {/* Currency Toggle */}
+            <div className="flex items-center rounded-full border border-black/10 bg-black/[0.03] p-0.5 text-xs font-semibold mr-1">
+              <button
+                onClick={() => setCurrency("USD")}
+                className={cn(
+                  "px-2.5 py-1.5 rounded-full transition-all duration-200",
+                  currency === "USD"
+                    ? "bg-white text-black shadow-sm"
+                    : "text-black/40 hover:text-black/60"
+                )}
+              >
+                $ USD
+              </button>
+              <button
+                onClick={() => setCurrency("INR")}
+                className={cn(
+                  "px-2.5 py-1.5 rounded-full transition-all duration-200",
+                  currency === "INR"
+                    ? "bg-white text-black shadow-sm"
+                    : "text-black/40 hover:text-black/60"
+                )}
+              >
+                ₹ INR
+              </button>
+            </div>
+
             <Link href="/login">
               <button className="px-4 py-2 rounded-full text-sm font-medium text-black/60 hover:text-black hover:bg-black/[0.05] transition-all duration-200">
                 Log In
@@ -209,6 +237,27 @@ export function Navbar() {
                 </motion.div>
               ))}
               <div className="pt-4 pb-2 flex flex-col gap-2.5 border-t border-black/[0.06] mt-3">
+                {/* Currency toggle — mobile */}
+                <div className="flex items-center rounded-full border border-black/10 bg-black/[0.02] p-0.5 text-xs font-semibold self-start">
+                  <button
+                    onClick={() => setCurrency("USD")}
+                    className={cn(
+                      "flex-1 px-4 py-2 rounded-full transition-all duration-200",
+                      currency === "USD" ? "bg-white text-black shadow-sm" : "text-black/40"
+                    )}
+                  >
+                    $ USD
+                  </button>
+                  <button
+                    onClick={() => setCurrency("INR")}
+                    className={cn(
+                      "flex-1 px-4 py-2 rounded-full transition-all duration-200",
+                      currency === "INR" ? "bg-white text-black shadow-sm" : "text-black/40"
+                    )}
+                  >
+                    ₹ INR
+                  </button>
+                </div>
                 <Link href="/login" onClick={() => setOpen(false)}>
                   <button className="w-full py-2.5 rounded-full border border-black/10 text-sm font-medium text-black/70 hover:bg-black/[0.04] transition-colors">
                     Log In

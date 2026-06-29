@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useEffect, createContext, useContext, useRef } from "react";
 import Lenis from "lenis";
+import { CurrencyProvider } from "@/contexts/currency";
 
 // ---- TanStack Query ----
 function makeQueryClient() {
@@ -128,10 +129,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <LenisProvider>
-        <CursorGlow />
-        {children}
-      </LenisProvider>
+      <CurrencyProvider>
+        <LenisProvider>
+          <CursorGlow />
+          {children}
+        </LenisProvider>
+      </CurrencyProvider>
     </QueryClientProvider>
   );
 }
