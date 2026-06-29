@@ -209,6 +209,8 @@ export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
                       planId={plan.id}
                       planName={plan.name}
                       usdAmount={total / 100}
+                      customerEmail={contactData?.email ?? ""}
+                      customerName={contactData?.name ?? ""}
                       onSuccess={() => router.push("/checkout/success")}
                     />
                   </motion.div>
