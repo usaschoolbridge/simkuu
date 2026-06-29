@@ -9,6 +9,7 @@ import { Reveal, StaggerReveal } from "@/components/motion/reveal";
 import { fadeUp } from "@/animations/variants";
 import { cn, discountPercent } from "@/lib/utils";
 import type { PlanInterval } from "@/types";
+import { useCurrency } from "@/contexts/currency";
 
 type Interval = PlanInterval;
 
@@ -72,6 +73,7 @@ function PlanCard({
   const price = plan.prices[interval];
   const monthlyPrice = plan.prices.monthly;
   const savings = interval !== "monthly" ? discountPercent(monthlyPrice, price) : 0;
+  const { format } = useCurrency();
 
   return (
     <motion.div variants={fadeUp} className={cn("relative", featured && "lg:-mt-4 lg:mb-4")}>
@@ -109,14 +111,14 @@ function PlanCard({
             <div className="flex items-baseline gap-1">
               <AnimatePresence mode="wait">
                 <motion.span
-                  key={price}
+                  key={`${price}-${format(price)}`}
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
                   transition={{ duration: 0.2 }}
                   className="font-display text-5xl font-black text-black"
                 >
-                  ${price}
+                  {format(price)}
                 </motion.span>
               </AnimatePresence>
               <span className="text-black/40 text-base">/mo</span>

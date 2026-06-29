@@ -8,6 +8,7 @@ import { Tilt } from "@/components/motion/tilt";
 import { Reveal, StaggerReveal } from "@/components/motion/reveal";
 import { fadeUp } from "@/animations/variants";
 import { siteConfig } from "@/config/site";
+import { useCurrency } from "@/contexts/currency";
 
 const CARRIER_FEATURES: Record<string, string[]> = {
   tmobile: ["Largest 5G network", "99% nationwide coverage", "Unlimited hotspot", "HD streaming"],
@@ -15,6 +16,8 @@ const CARRIER_FEATURES: Record<string, string[]> = {
   att: ["FirstNet backbone", "Deep urban coverage", "WiFi calling", "International roaming"],
   mvno: ["T-Mobile network", "Lowest prices", "No contracts", "Same 5G speeds"],
 };
+
+const CARRIER_STARTING_PRICES = [15, 20, 18, 12];
 
 function CarrierCard({
   carrier,
@@ -24,6 +27,7 @@ function CarrierCard({
   index: number;
 }) {
   const features = CARRIER_FEATURES[carrier.id] ?? [];
+  const { format } = useCurrency();
 
   return (
     <motion.div variants={fadeUp}>
@@ -87,7 +91,7 @@ function CarrierCard({
             {/* Pricing teaser */}
             <div className="flex items-baseline gap-1 mb-6">
               <span className="text-2xl font-black font-display text-black">
-                {["$15", "$20", "$18", "$12"][index]}
+                {format(CARRIER_STARTING_PRICES[index])}
               </span>
               <span className="text-black/40 text-sm">/mo</span>
               <span className="ml-2 text-xs text-black/30">starting at</span>
