@@ -1,42 +1,71 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { Check, Zap, SlidersHorizontal, X } from "lucide-react";
+import { Check, Zap, SlidersHorizontal, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Reveal } from "@/components/motion/reveal";
 import { cn } from "@/lib/utils";
 import { useCurrency } from "@/contexts/currency";
 
-type CarrierFilter = "all" | "tmobile" | "verizon" | "att" | "mvno";
-type DataFilter = "all" | "5gb" | "15gb" | "unlimited";
+type CarrierFilter = "all" | string;
+type DataFilter = "all" | "small" | "medium" | "unlimited";
 type SortBy = "price-asc" | "price-desc" | "popular";
 
-const ALL_PLANS = [
-  // T-Mobile
-  { id: "tm-starter", name: "Starter", carrier: "tmobile", carrierName: "T-Mobile", color: "#E20074", data: "5GB", price: 15, badge: null, hotspot: false, fiveG: true, calls: "Unlimited", sms: "Unlimited", features: ["T-Mobile network", "5G ready", "Wi-Fi calling"], popular: false },
-  { id: "tm-standard", name: "Standard", carrier: "tmobile", carrierName: "T-Mobile", color: "#E20074", data: "Unlimited", price: 25, badge: "Most Popular", hotspot: true, fiveG: true, calls: "Unlimited", sms: "Unlimited", features: ["T-Mobile 5G", "30GB hotspot", "HD streaming", "Mobile hotspot"], popular: true },
-  { id: "tm-premium", name: "Premium", carrier: "tmobile", carrierName: "T-Mobile", color: "#E20074", data: "Unlimited+", price: 40, badge: null, hotspot: true, fiveG: true, calls: "Unlimited", sms: "Unlimited", features: ["Priority data", "Unlimited hotspot", "4K streaming", "International SMS"], popular: false },
-  // Verizon
-  { id: "vz-starter", name: "Starter", carrier: "verizon", carrierName: "Verizon", color: "#CD040B", data: "5GB", price: 18, badge: null, hotspot: false, fiveG: true, calls: "Unlimited", sms: "Unlimited", features: ["Verizon network", "5G Nationwide", "Wi-Fi calling"], popular: false },
-  { id: "vz-standard", name: "Standard", carrier: "verizon", carrierName: "Verizon", color: "#CD040B", data: "Unlimited", price: 35, badge: "Best Network", hotspot: true, fiveG: true, calls: "Unlimited", sms: "Unlimited", features: ["5G Ultra Wideband", "25GB hotspot", "Premium data", "HD streaming"], popular: false },
-  { id: "vz-premium", name: "Premium", carrier: "verizon", carrierName: "Verizon", color: "#CD040B", data: "Unlimited+", price: 55, badge: null, hotspot: true, fiveG: true, calls: "Unlimited", sms: "Unlimited", features: ["Unlimited UWB 5G", "Unlimited hotspot", "Priority always", "4K streaming", "Apple One trial"], popular: false },
-  // AT&T
-  { id: "att-starter", name: "Starter", carrier: "att", carrierName: "AT&T", color: "#00A8E0", data: "5GB", price: 16, badge: null, hotspot: false, fiveG: true, calls: "Unlimited", sms: "Unlimited", features: ["AT&T network", "5G access", "Wi-Fi calling"], popular: false },
-  { id: "att-standard", name: "Standard", carrier: "att", carrierName: "AT&T", color: "#00A8E0", data: "Unlimited", price: 30, badge: null, hotspot: true, fiveG: true, calls: "Unlimited", sms: "Unlimited", features: ["AT&T 5G+", "15GB hotspot", "HD streaming", "Mobile share"], popular: false },
-  { id: "att-premium", name: "Premium", carrier: "att", carrierName: "AT&T", color: "#00A8E0", data: "Unlimited+", price: 50, badge: null, hotspot: true, fiveG: true, calls: "Unlimited", sms: "Unlimited", features: ["AT&T 5G+ priority", "Unlimited hotspot", "4K streaming", "International calls"], popular: false },
-  // MVNO
-  { id: "mvno-starter", name: "Starter", carrier: "mvno", carrierName: "T-Mobile MVNO", color: "#8B5CF6", data: "5GB", price: 10, badge: "Best Value", hotspot: false, fiveG: true, calls: "Unlimited", sms: "Unlimited", features: ["T-Mobile backbone", "5G access", "Wi-Fi calling"], popular: false },
-  { id: "mvno-standard", name: "Standard", carrier: "mvno", carrierName: "T-Mobile MVNO", color: "#8B5CF6", data: "15GB", price: 18, badge: null, hotspot: true, fiveG: true, calls: "Unlimited", sms: "Unlimited", features: ["T-Mobile 5G", "10GB hotspot", "HD streaming"], popular: false },
-  { id: "mvno-unlimited", name: "Unlimited", carrier: "mvno", carrierName: "T-Mobile MVNO", color: "#8B5CF6", data: "Unlimited", price: 25, badge: null, hotspot: true, fiveG: true, calls: "Unlimited", sms: "Unlimited", features: ["T-Mobile 5G priority", "25GB hotspot", "HD streaming", "Mobile hotspot"], popular: false },
-];
-
-const DATA_LABELS: Record<string, string> = {
-  all: "All Data", "5gb": "5 GB", "15gb": "15 GB", unlimited: "Unlimited",
+type DbPlan = {
+  id: string;
+  name: string;
+  carrierId: string;
+  carrier: { id: string; name: string; color: string };
+  data: string;
+  price: number;
+  originalPrice: number | null;
+  fiveG: boolean;
+  hotspot: boolean;
+  badge: string | null;
+  isActive: boolean;
+  sortOrder: number;
 };
 
-function PlanCard({ plan, format }: { plan: typeof ALL_PLANS[0]; format: (p: number) => string }) {
+const DATA_LABELS: Record<DataFilter, string> = {
+  all: "All Data",
+  small: "Under 15 GB",
+  medium: "15–50 GB",
+  unlimited: "Unlimited",
+};
+
+function getCarrierColor(carrier: DbPlan["carrier"]): string {
+  const colors: Record<string, string> = {
+    TMOBILE: "#E20074",
+    VERIZON: "#CD040B",
+    ATT: "#00A8E0",
+    MVNO: "#9B59B6",
+  };
+  return colors[carrier?.id] ?? carrier?.color ?? "#6B7280";
+}
+
+function matchesDataFilter(data: string, filter: DataFilter): boolean {
+  if (filter === "all") return true;
+  const lower = data.toLowerCase();
+  if (filter === "unlimited") return lower.includes("unlimited");
+  const gb = parseFloat(data);
+  if (filter === "small") return !isNaN(gb) && gb < 15;
+  if (filter === "medium") return !isNaN(gb) && gb >= 15 && gb <= 50;
+  return true;
+}
+
+function PlanCard({ plan, format }: { plan: DbPlan; format: (p: number) => string }) {
+  const color = getCarrierColor(plan.carrier);
+  const features = [
+    `${plan.carrier?.name} network`,
+    plan.fiveG ? "5G enabled" : "4G LTE",
+    plan.hotspot ? "Mobile hotspot" : null,
+    "Unlimited calls & SMS",
+    "Wi-Fi calling",
+    "Instant QR delivery",
+  ].filter(Boolean) as string[];
+
   return (
     <motion.div
       layout
@@ -47,12 +76,12 @@ function PlanCard({ plan, format }: { plan: typeof ALL_PLANS[0]; format: (p: num
       className="group relative rounded-2xl bg-white border border-black/[0.06] shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden flex flex-col"
     >
       {/* Top accent */}
-      <div className="h-0.5 w-full" style={{ background: plan.color }} />
+      <div className="h-0.5 w-full" style={{ background: color }} />
 
       {/* Badge */}
       {plan.badge && (
         <div className="absolute top-4 right-4 px-2.5 py-1 rounded-full text-[11px] font-bold text-white shadow"
-          style={{ background: plan.color }}>
+          style={{ background: color }}>
           {plan.badge}
         </div>
       )}
@@ -61,11 +90,11 @@ function PlanCard({ plan, format }: { plan: typeof ALL_PLANS[0]; format: (p: num
         {/* Carrier + name */}
         <div className="flex items-center gap-2.5 mb-4">
           <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-black shadow-sm"
-            style={{ background: plan.color }}>
-            {plan.carrierName.charAt(0)}
+            style={{ background: color }}>
+            {plan.carrier?.name?.charAt(0) ?? "?"}
           </div>
           <div>
-            <div className="text-[11px] text-black/30 leading-none">{plan.carrierName}</div>
+            <div className="text-[11px] text-black/30 leading-none">{plan.carrier?.name}</div>
             <div className="font-display font-bold text-black text-sm">{plan.name}</div>
           </div>
         </div>
@@ -78,15 +107,18 @@ function PlanCard({ plan, format }: { plan: typeof ALL_PLANS[0]; format: (p: num
 
         {/* Price */}
         <div className="flex items-baseline gap-1 mb-4">
-          <span className="font-display text-3xl font-black text-black">{format(plan.price)}</span>
+          <span className="font-display text-3xl font-black text-black">{format(Number(plan.price))}</span>
           <span className="text-black/40 text-sm">/mo</span>
+          {plan.originalPrice && (
+            <span className="text-black/25 text-sm line-through ml-1">{format(Number(plan.originalPrice))}</span>
+          )}
         </div>
 
         {/* Features */}
         <ul className="space-y-2 mb-5 flex-1">
-          {plan.features.map((f) => (
+          {features.map((f) => (
             <li key={f} className="flex items-center gap-2 text-sm text-black/55">
-              <Check className="w-3.5 h-3.5 shrink-0" style={{ color: plan.color }} />
+              <Check className="w-3.5 h-3.5 shrink-0" style={{ color }} />
               {f}
             </li>
           ))}
@@ -99,9 +131,9 @@ function PlanCard({ plan, format }: { plan: typeof ALL_PLANS[0]; format: (p: num
           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-50 text-green-600">Unlimited Calls</span>
         </div>
 
-        <Link href="/checkout">
+        <Link href={`/checkout?planId=${plan.id}`}>
           <Button variant="outline" size="sm" className="w-full hover:text-white transition-all duration-300"
-            onMouseEnter={(e) => { const b = e.currentTarget; b.style.background = plan.color; b.style.borderColor = plan.color; b.style.color = "white"; }}
+            onMouseEnter={(e) => { const b = e.currentTarget; b.style.background = color; b.style.borderColor = color; b.style.color = "white"; }}
             onMouseLeave={(e) => { const b = e.currentTarget; b.style.background = ""; b.style.borderColor = ""; b.style.color = ""; }}>
             Get This Plan
           </Button>
@@ -112,33 +144,45 @@ function PlanCard({ plan, format }: { plan: typeof ALL_PLANS[0]; format: (p: num
 }
 
 export function PlansGrid() {
+  const [plans, setPlans] = useState<DbPlan[]>([]);
+  const [loading, setLoading] = useState(true);
   const [carrier, setCarrier] = useState<CarrierFilter>("all");
   const [data, setData] = useState<DataFilter>("all");
   const [sort, setSort] = useState<SortBy>("popular");
   const { format, currency } = useCurrency();
 
-  const filtered = ALL_PLANS
-    .filter((p) => carrier === "all" || p.carrier === carrier)
-    .filter((p) => {
-      if (data === "all") return true;
-      if (data === "5gb") return p.data === "5GB";
-      if (data === "15gb") return p.data === "15GB";
-      if (data === "unlimited") return p.data.toLowerCase().includes("unlimited");
-      return true;
-    })
+  useEffect(() => {
+    fetch("/api/plans")
+      .then(r => r.json())
+      .then(data => { setPlans(data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const uniqueCarriers = Array.from(
+    new Map(plans.map(p => [p.carrierId, p.carrier])).entries()
+  );
+
+  const filtered = plans
+    .filter(p => carrier === "all" || p.carrierId === carrier)
+    .filter(p => matchesDataFilter(p.data, data))
     .sort((a, b) => {
-      if (sort === "price-asc") return a.price - b.price;
-      if (sort === "price-desc") return b.price - a.price;
-      return (b.popular ? 1 : 0) - (a.popular ? 1 : 0);
+      if (sort === "price-asc") return Number(a.price) - Number(b.price);
+      if (sort === "price-desc") return Number(b.price) - Number(a.price);
+      // popular: badge plans first, then by sortOrder
+      const aBadge = a.badge ? 1 : 0;
+      const bBadge = b.badge ? 1 : 0;
+      return bBadge - aBadge || a.sortOrder - b.sortOrder;
     });
 
-  const carriers: { id: CarrierFilter; label: string; color?: string }[] = [
-    { id: "all", label: "All Carriers" },
-    { id: "tmobile", label: "T-Mobile", color: "#E20074" },
-    { id: "verizon", label: "Verizon", color: "#CD040B" },
-    { id: "att", label: "AT&T", color: "#00A8E0" },
-    { id: "mvno", label: "MVNO", color: "#8B5CF6" },
-  ];
+  if (loading) {
+    return (
+      <section className="pb-24 md:pb-32">
+        <div className="container-xl flex items-center justify-center py-20">
+          <Loader2 className="w-8 h-8 animate-spin text-black/20" />
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="pb-24 md:pb-32">
@@ -147,12 +191,17 @@ export function PlansGrid() {
         <Reveal variant="fadeUp" className="flex flex-col sm:flex-row gap-4 mb-10">
           {/* Carrier filter */}
           <div className="flex flex-wrap gap-2">
-            {carriers.map((c) => (
-              <button key={c.id} onClick={() => setCarrier(c.id)}
+            <button onClick={() => setCarrier("all")}
+              className={cn("flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border",
+                carrier === "all" ? "bg-black text-white border-black" : "bg-white text-black/50 border-black/10 hover:border-black/20")}>
+              All Carriers
+            </button>
+            {uniqueCarriers.map(([id, c]) => (
+              <button key={id} onClick={() => setCarrier(id)}
                 className={cn("flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border",
-                  carrier === c.id ? "bg-black text-white border-black" : "bg-white text-black/50 border-black/10 hover:border-black/20")}>
-                {c.color && <div className="w-2 h-2 rounded-full" style={{ background: c.color }} />}
-                {c.label}
+                  carrier === id ? "bg-black text-white border-black" : "bg-white text-black/50 border-black/10 hover:border-black/20")}>
+                <div className="w-2 h-2 rounded-full" style={{ background: getCarrierColor(c) }} />
+                {c?.name}
               </button>
             ))}
           </div>
@@ -161,8 +210,8 @@ export function PlansGrid() {
           <div className="flex gap-2 sm:ml-auto">
             <select value={data} onChange={(e) => setData(e.target.value as DataFilter)}
               className="px-3 py-2 rounded-full text-sm font-medium border border-black/10 bg-white text-black/70 focus:outline-none focus:border-blue-400">
-              {(["all", "5gb", "15gb", "unlimited"] as DataFilter[]).map((d) => (
-                <option key={d} value={d}>{DATA_LABELS[d]}</option>
+              {(Object.entries(DATA_LABELS) as [DataFilter, string][]).map(([val, label]) => (
+                <option key={val} value={val}>{label}</option>
               ))}
             </select>
             <select value={sort} onChange={(e) => setSort(e.target.value as SortBy)}
