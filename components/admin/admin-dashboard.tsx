@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { DollarSign, ShoppingBag, Users, Wifi, TrendingUp, TrendingDown, ArrowRight, AlertTriangle, CheckCircle, Clock, XCircle, Loader2 } from "lucide-react";
+import { DollarSign, ShoppingBag, Users, Wifi, TrendingUp, TrendingDown, ArrowRight, AlertTriangle, CheckCircle, Clock, XCircle, Loader2, Bitcoin, Package } from "lucide-react";
 import Link from "next/link";
 
 interface DashboardOrder {
@@ -14,18 +14,21 @@ interface DashboardOrder {
   plan: { name: string; carrier: { name: string } };
 }
 
+interface LowStockAlert { planId: string; planName: string; available: number; }
+
 interface DashboardData {
   stats: {
-    totalRevenue: number;
-    revenueChange: number;
-    totalOrders: number;
-    ordersChange: number;
-    activeCustomers: number;
-    customersChange: number;
+    todayRevenue: number; todayOrders: number;
+    totalRevenue: number; revenueChange: number;
+    totalOrders: number; ordersChange: number;
+    activeCustomers: number; customersChange: number;
     activeEsims: number;
+    pendingOrders: number; confirmedOrders: number; expiredOrders: number;
+    cryptoOrders: number; availableInventory: number;
   };
   recentOrders: DashboardOrder[];
   openTickets: number;
+  lowStockAlerts: LowStockAlert[];
 }
 
 const STATUS_CFG: Record<string, { color: string; bg: string; icon: React.ElementType }> = {
@@ -75,7 +78,7 @@ export function AdminDashboard() {
     return <div className="text-center py-32 text-black/30 text-sm">Failed to load dashboard</div>;
   }
 
-  const { stats, recentOrders, openTickets } = data;
+  const { stats, recentOrders, openTickets, lowStockAlerts } = data;
 
   const STATS = [
     { label: "Revenue (this month)", value: `$${stats.totalRevenue.toLocaleString()}`, change: pct(stats.revenueChange), trend: stats.revenueChange >= 0 ? "up" : "down", icon: DollarSign, color: "text-emerald-600", bg: "bg-emerald-50" },
@@ -86,6 +89,19 @@ export function AdminDashboard() {
 
   return (
     <div className="space-y-5">
+      {/* Today's highlight */}
+      <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+        className="grid grid-cols-2 gap-3 p-4 bg-gradient-to-r from-black to-gray-800 rounded-2xl text-white">
+        <div>
+          <p className="text-xs text-white/50 mb-1">Today&apos;s revenue</p>
+          <p className="text-2xl font-black">${stats.todayRevenue.toFixed(2)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-white/50 mb-1">Today&apos;s orders</p>
+          <p className="text-2xl font-black">{stats.todayOrders}</p>
+        </div>
+      </motion.div>
+
       {/* Alerts */}
       {openTickets > 0 && (
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
@@ -93,6 +109,16 @@ export function AdminDashboard() {
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           <span className="flex-1">{openTickets} open support ticket{openTickets !== 1 ? "s" : ""} need attention</span>
           <Link href="/admin/support" className="text-xs font-medium underline">View</Link>
+        </motion.div>
+      )}
+      {lowStockAlerts?.length > 0 && (
+        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+          className="flex items-start gap-3 px-4 py-3 rounded-xl border text-sm bg-amber-50 border-amber-200 text-amber-800">
+          <Package className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <div>
+            <span className="font-semibold">Low inventory: </span>
+            {lowStockAlerts.map(a => `${a.planName} (${a.available} left)`).join(", ")}
+          </div>
         </motion.div>
       )}
 
@@ -115,6 +141,28 @@ export function AdminDashboard() {
           </motion.div>
         ))}
       </div>
+
+      {/* Payment status breakdown */}
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+        className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {[
+          { label: "Pending",   value: stats.pendingOrders,   color: "text-amber-600",   bg: "bg-amber-50", icon: Clock },
+          { label: "Confirmed", value: stats.confirmedOrders, color: "text-emerald-600", bg: "bg-emerald-50", icon: CheckCircle },
+          { label: "Expired",   value: stats.expiredOrders,   color: "text-black/30",    bg: "bg-black/5", icon: XCircle },
+          { label: "Crypto",    value: stats.cryptoOrders,    color: "text-amber-500",   bg: "bg-amber-50", icon: Bitcoin },
+          { label: "Inventory", value: stats.availableInventory, color: "text-blue-600", bg: "bg-blue-50", icon: Package },
+        ].map((s) => (
+          <div key={s.label} className="bg-white rounded-xl border border-black/[0.06] p-3 shadow-sm flex items-center gap-3">
+            <div className={`w-8 h-8 rounded-lg ${s.bg} flex items-center justify-center flex-shrink-0`}>
+              <s.icon className={`w-4 h-4 ${s.color}`} />
+            </div>
+            <div>
+              <div className="font-bold text-base text-black">{s.value}</div>
+              <div className="text-[10px] text-black/40">{s.label}</div>
+            </div>
+          </div>
+        ))}
+      </motion.div>
 
       {/* Recent orders */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}

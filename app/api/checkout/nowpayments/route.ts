@@ -9,6 +9,7 @@ const schema = z.object({
   planId: z.string().min(1),
   email: z.string().email(),
   name: z.string().min(1),
+  payCurrency: z.string().min(2).max(20).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const { planId, email, name } = parsed.data;
+    const { planId, email, name, payCurrency } = parsed.data;
 
     const plan = await db.plan.findUnique({ where: { id: planId } });
     if (!plan || !plan.isActive) {
@@ -68,6 +69,7 @@ export async function POST(req: NextRequest) {
       callbackUrl: `${baseUrl}/api/webhooks/nowpayments`,
       successUrl: `${baseUrl}/checkout/success?orderId=${order.id}&method=crypto`,
       cancelUrl: `${baseUrl}/checkout?cancelled=1`,
+      payCurrency: payCurrency ? payCurrency.toLowerCase() : undefined,
     });
 
     // Persist the hosted invoice URL + provider reference on the order.

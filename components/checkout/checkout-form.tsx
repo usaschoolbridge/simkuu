@@ -8,7 +8,7 @@ import { z } from "zod";
 import { useRouter } from "next/navigation";
 import {
   CreditCard, Loader2, Mail, User, Lock, Shield,
-  ChevronRight, Smartphone, Bitcoin,
+  ChevronRight, Smartphone, Bitcoin, Phone, Globe,
 } from "lucide-react";
 import { CryptoPayment } from "./crypto-payment";
 
@@ -17,6 +17,8 @@ type PaymentMethod = "card" | "paypal" | "apple_pay" | "google_pay" | "crypto";
 const contactSchema = z.object({
   name: z.string().min(2, "Name required"),
   email: z.string().email("Valid email required"),
+  phone: z.string().max(30).optional().or(z.literal("")),
+  country: z.string().max(60).optional().or(z.literal("")),
 });
 type ContactValues = z.infer<typeof contactSchema>;
 
@@ -108,7 +110,12 @@ export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
       const orderRes = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId: plan.id, name: contactData.name, email: contactData.email, paymentProvider: provider }),
+        body: JSON.stringify({
+          planId: plan.id, name: contactData.name, email: contactData.email,
+          paymentProvider: provider,
+          ...(contactData.phone ? { phone: contactData.phone } : {}),
+          ...(contactData.country ? { country: contactData.country } : {}),
+        }),
       });
       const orderJson = await orderRes.json();
       if (!orderRes.ok) { setPayError(orderJson.error ?? "Could not create your order."); setPaying(false); return; }
@@ -179,6 +186,24 @@ export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
                   {errors.email && <p className="mt-1 text-xs text-red-500">{errors.email.message}</p>}
                   <p className="mt-1.5 text-xs text-black/30">Your eSIM QR code will be sent here instantly after payment.</p>
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-black/50 mb-1.5 block">Phone <span className="text-black/25">(optional)</span></label>
+                    <div className="relative">
+                      <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-black/30" />
+                      <input {...register("phone")} type="tel" placeholder="+1 555 000 0000" autoComplete="tel"
+                        className="w-full pl-10 pr-4 py-3 rounded-xl border border-black/10 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-black/50 mb-1.5 block">Country <span className="text-black/25">(optional)</span></label>
+                    <div className="relative">
+                      <Globe className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-black/30" />
+                      <input {...register("country")} placeholder="United States" autoComplete="country-name"
+                        className="w-full pl-10 pr-4 py-3 rounded-xl border border-black/10 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all" />
+                    </div>
+                  </div>
+                </div>
                 <motion.button whileTap={{ scale: 0.98 }} type="submit"
                   className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-black text-white font-semibold text-sm hover:bg-black/80 transition-all shadow-md shadow-black/10">
                   Continue to payment <ChevronRight className="w-4 h-4" />
@@ -231,7 +256,9 @@ export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
                       usdAmount={total / 100}
                       customerEmail={contactData?.email ?? ""}
                       customerName={contactData?.name ?? ""}
-                      onSuccess={() => router.push("/checkout/success")}
+                      customerPhone={contactData?.phone ?? ""}
+                      customerCountry={contactData?.country ?? ""}
+                      onSuccess={(orderId) => router.push(`/checkout/success?orderId=${encodeURIComponent(orderId)}`)}
                     />
                   </motion.div>
                 ) : (

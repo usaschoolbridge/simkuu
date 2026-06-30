@@ -3,6 +3,19 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhookSignature, PAID_STATUSES, FAILED_STATUSES } from "@/lib/payments/nowpayments";
 import { fulfillAndNotify } from "@/lib/fulfillment";
+import { db } from "@/lib/db";
+
+/** Merge partial fields into an order's metadata JSON without dropping existing keys. */
+async function mergeOrderMeta(orderId: string, patch: Record<string, unknown>) {
+  if (!db) return;
+  try {
+    const order = await db.order.findUnique({ where: { id: orderId }, select: { metadata: true } });
+    const prev = (order?.metadata as Record<string, unknown> | null) ?? {};
+    await db.order.update({ where: { id: orderId }, data: { metadata: { ...prev, ...patch } } });
+  } catch {
+    /* order may not exist yet — non-fatal */
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,6 +42,15 @@ export async function POST(req: NextRequest) {
     const paymentId = body.payment_id as string | number;
     const actuallyPaid = body.actually_paid as string;
     const payCurrency = body.pay_currency as string;
+    const txHash = body.payin_hash as string | undefined;
+
+    // Always record the latest status + tx hash on the order for the admin panel.
+    await mergeOrderMeta(orderId, {
+      paymentStatus: status,
+      ...(txHash ? { txHash } : {}),
+      ...(actuallyPaid ? { actuallyPaid } : {}),
+      ...(payCurrency ? { payCurrency } : {}),
+    });
 
     if (PAID_STATUSES.includes(status)) {
       console.log(`[nowpayments-webhook] PAID — orderId: ${orderId}, paid: ${actuallyPaid} ${payCurrency}`);
@@ -37,11 +59,9 @@ export async function POST(req: NextRequest) {
 
     } else if (FAILED_STATUSES.includes(status)) {
       console.log(`[nowpayments-webhook] FAILED — orderId: ${orderId}, status: ${status}`);
-
-      // await db.order.update({
-      //   where: { reference: orderId },
-      //   data: { status: "FAILED" },
-      // });
+      if (db) {
+        await db.order.update({ where: { id: orderId }, data: { status: "CANCELLED" } }).catch(() => {});
+      }
 
     } else {
       console.log(`[nowpayments-webhook] Status update — ${status} for orderId: ${orderId}`);

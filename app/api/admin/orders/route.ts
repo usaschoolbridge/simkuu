@@ -26,11 +26,13 @@ export async function GET(req: NextRequest) {
     const orders = await db.order.findMany({
       where,
       include: {
-        user: { select: { id: true, name: true, email: true } },
+        user: { select: { id: true, name: true, email: true, phone: true } },
         plan: { select: { id: true, name: true, carrier: { select: { name: true } } } },
+        esim: { select: { id: true, iccid: true, activationCode: true, status: true, activatedAt: true } },
+        inventoryItem: { select: { id: true, iccid: true } },
       },
       orderBy: { createdAt: "desc" },
-      take: 50,
+      take: 100,
     });
 
     return NextResponse.json(orders);

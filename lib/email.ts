@@ -8,11 +8,13 @@
  *   4. Uncomment the Resend import and remove the mock below
  */
 
-// import { Resend } from "resend";
-// const resend = new Resend(process.env.RESEND_API_KEY);
+import { Resend } from "resend";
 
-const FROM = process.env.RESEND_FROM_EMAIL ?? "noreply@simkuu.com";
+const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
+const FROM = process.env.RESEND_FROM_EMAIL ?? "Simkuu <noreply@simkuu.com>";
 const SUPPORT = "support@simkuu.com";
+
+const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -22,11 +24,26 @@ interface SendResult {
   error?: string;
 }
 
-// ── Mock sender (dev) ─────────────────────────────────────────────────────────
+// ── Sender ────────────────────────────────────────────────────────────────────
+// Sends via Resend when RESEND_API_KEY is configured; otherwise logs a mock so
+// local/dev never crashes. Email failures are returned, never thrown.
 
-async function mockSend(to: string, subject: string, _html: string): Promise<SendResult> {
-  console.log(`[Email MOCK] → ${to}\n  Subject: ${subject}`);
-  return { success: true, id: `mock_${Date.now()}` };
+async function send(to: string, subject: string, html: string): Promise<SendResult> {
+  if (!resend) {
+    console.log(`[Email MOCK] → ${to}\n  Subject: ${subject}  (set RESEND_API_KEY to send for real)`);
+    return { success: true, id: `mock_${Date.now()}` };
+  }
+  try {
+    const { data, error } = await resend.emails.send({ from: FROM, to, subject, html });
+    if (error) {
+      console.error(`[Email] send failed → ${to}:`, error);
+      return { success: false, error: String(error) };
+    }
+    return { success: true, id: data?.id };
+  } catch (e) {
+    console.error(`[Email] send threw → ${to}:`, e);
+    return { success: false, error: e instanceof Error ? e.message : "send failed" };
+  }
 }
 
 // ── Email templates ───────────────────────────────────────────────────────────
@@ -95,8 +112,7 @@ export async function sendWelcomeEmail(to: string, name: string): Promise<SendRe
     </p>
   `);
 
-  // return resend.emails.send({ from: FROM, to, subject, html });
-  return mockSend(to, subject, html);
+  return send(to, subject, html);
 }
 
 /** Order confirmation with eSIM QR delivery */
@@ -133,8 +149,7 @@ export async function sendOrderConfirmation(
     </a>
   `);
 
-  // return resend.emails.send({ from: FROM, to, subject, html });
-  return mockSend(to, subject, html);
+  return send(to, subject, html);
 }
 
 /** Password reset */
@@ -153,8 +168,7 @@ export async function sendPasswordReset(to: string, resetUrl: string): Promise<S
     </p>
   `);
 
-  // return resend.emails.send({ from: FROM, to, subject, html });
-  return mockSend(to, subject, html);
+  return send(to, subject, html);
 }
 
 /** Email verification OTP */
@@ -175,8 +189,7 @@ export async function sendEmailVerification(to: string, otp: string): Promise<Se
     </p>
   `);
 
-  // return resend.emails.send({ from: FROM, to, subject, html });
-  return mockSend(to, subject, html);
+  return send(to, subject, html);
 }
 
 /** Plan expiry reminder */
@@ -203,6 +216,45 @@ export async function sendPlanExpiryReminder(
     </p>
   `);
 
-  // return resend.emails.send({ from: FROM, to, subject, html });
-  return mockSend(to, subject, html);
+  return send(to, subject, html);
+}
+
+/** Crypto order placed — sent the moment a payment is generated (before it's paid). */
+export async function sendCryptoOrderPlaced(
+  to: string,
+  { name, orderId, planName, coinName, network, payAmount, payCurrency, usdAmount }: {
+    name: string; orderId: string; planName: string; coinName: string;
+    network: string; payAmount: number; payCurrency: string; usdAmount: number;
+  }
+): Promise<SendResult> {
+  const subject = `Order received — complete your ${coinName} payment · #${orderId.slice(-6).toUpperCase()}`;
+  const row = (label: string, value: string) =>
+    `<tr><td style="padding:6px 0;color:#6b7280;font-size:14px;">${label}</td><td style="padding:6px 0;text-align:right;font-size:14px;color:#000;font-weight:600;">${value}</td></tr>`;
+  const html = baseTemplate(`
+    <div style="display:inline-block;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px 16px;margin-bottom:24px;">
+      <span style="color:#c2410c;font-weight:700;font-size:13px;">⏳ Awaiting payment</span>
+    </div>
+    <h1 style="margin:0 0 8px;font-size:26px;font-weight:900;color:#000;">Thanks, ${name}!</h1>
+    <p style="margin:0 0 24px;color:#6b7280;font-size:15px;">
+      We've reserved your <strong>${planName}</strong>. Send the exact amount below to complete your order — your eSIM is delivered automatically once the payment confirms on-chain.
+    </p>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin-bottom:24px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        ${row("Order number", `#${orderId.slice(-6).toUpperCase()}`)}
+        ${row("Plan", planName)}
+        ${row("Amount due", `$${usdAmount.toFixed(2)} USD`)}
+        ${row("Pay with", `${coinName} (${payCurrency.toUpperCase()})`)}
+        ${row("Network", network)}
+        ${row("Crypto amount", `${payAmount} ${payCurrency.toUpperCase()}`)}
+      </table>
+    </div>
+    <p style="margin:0 0 24px;color:#9ca3af;font-size:13px;">
+      The payment window is time-limited. If it expires before you pay, just start a new checkout.
+    </p>
+    <a href="https://simkuu.com/dashboard" style="display:inline-block;background:#000;color:#fff;padding:14px 28px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;">
+      Track your order →
+    </a>
+  `);
+
+  return send(to, subject, html);
 }
