@@ -67,12 +67,10 @@ function LenisProvider({ children }: { children: React.ReactNode }) {
 // ---- Cursor Glow ----
 function CursorGlow() {
   const cursorRef = useRef<HTMLDivElement>(null);
-  const cursorDotRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const cursor = cursorRef.current;
-    const dot = cursorDotRef.current;
-    if (!cursor || !dot) return;
+    if (!cursor) return;
 
     let mouseX = 0;
     let mouseY = 0;
@@ -82,8 +80,6 @@ function CursorGlow() {
     const handleMouseMove = (e: MouseEvent) => {
       mouseX = e.clientX;
       mouseY = e.clientY;
-      dot.style.left = `${mouseX}px`;
-      dot.style.top = `${mouseY}px`;
     };
 
     const animate = () => {
@@ -101,25 +97,17 @@ function CursorGlow() {
   }, []);
 
   return (
-    <>
-      {/* Glow follower */}
-      <div
-        ref={cursorRef}
-        className="pointer-events-none fixed z-[9999] -translate-x-1/2 -translate-y-1/2 rounded-full"
-        style={{
-          width: 400,
-          height: 400,
-          background:
-            "radial-gradient(circle, rgba(59,130,246,0.06) 0%, transparent 70%)",
-          transition: "opacity 0.3s ease",
-        }}
-      />
-      {/* Cursor dot */}
-      <div
-        ref={cursorDotRef}
-        className="pointer-events-none fixed z-[9999] -translate-x-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-500 opacity-70"
-      />
-    </>
+    <div
+      ref={cursorRef}
+      className="pointer-events-none fixed z-[9999] -translate-x-1/2 -translate-y-1/2 rounded-full"
+      style={{
+        width: 400,
+        height: 400,
+        background:
+          "radial-gradient(circle, rgba(59,130,246,0.06) 0%, transparent 70%)",
+        transition: "opacity 0.3s ease",
+      }}
+    />
   );
 }
 

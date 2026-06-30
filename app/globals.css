@@ -132,16 +132,32 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* Issue 3: Remove mobile blue tap highlight on all interactive elements */
+    -webkit-tap-highlight-color: transparent;
   }
   html {
     @apply font-sans;
     scroll-behavior: smooth;
+  }
+  /* Issue 1: Respect reduced-motion preference */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
   }
   body {
     @apply bg-background text-foreground antialiased;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+  }
+  /* Issue 3: Preserve keyboard focus styles; only remove tap highlight */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+  :focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
   }
 }
 

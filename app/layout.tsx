@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Space_Grotesk, Plus_Jakarta_Sans } from "next/font/google";
 import { Providers } from "@/providers";
 import { Analytics } from "@/components/analytics/analytics";
+import { BackToTop } from "@/components/ui/back-to-top";
 import { siteConfig } from "@/config/site";
 import "./globals.css";
 
@@ -109,6 +110,7 @@ export default function RootLayout({
         </a>
         <Providers>{children}</Providers>
         <Analytics />
+        <BackToTop />
       </body>
     </html>
   );
