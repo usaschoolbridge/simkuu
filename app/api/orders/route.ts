@@ -17,9 +17,11 @@ const bodySchema = z.object({
   name: z.string().min(2, "Name required").max(120),
   email: z.string().email("Valid email required"),
   phone: z.string().max(30).optional().or(z.literal("")),
+  country: z.string().max(60).optional().or(z.literal("")),
   paymentProvider: z
     .enum(["STRIPE", "PAYPAL", "CRYPTO", "RAZORPAY", "APPLE_PAY", "GOOGLE_PAY"])
     .default("STRIPE"),
+  couponCode: z.string().optional(),
   compat: z.string().optional(),
 });
 
@@ -45,6 +47,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Plan not available" }, { status: 404 });
     }
 
+    // Coupon validation
+    let coupon = null;
+    let discountAmount = 0;
+    if (data.couponCode) {
+      coupon = await db.coupon.findUnique({ where: { code: data.couponCode.toUpperCase().trim() } });
+      if (coupon && coupon.isActive &&
+          !(coupon.expiresAt && new Date(coupon.expiresAt) < new Date()) &&
+          !(coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses)) {
+        const planPrice = Number(plan.price);
+        if (!coupon.minOrderAmount || planPrice >= Number(coupon.minOrderAmount)) {
+          if (coupon.discountType === "PERCENTAGE") {
+            discountAmount = (planPrice * Number(coupon.discountValue)) / 100;
+          } else {
+            discountAmount = Math.min(Number(coupon.discountValue), planPrice);
+          }
+          discountAmount = parseFloat(discountAmount.toFixed(2));
+        }
+      }
+    }
+
+    const finalAmount = Math.max(0, Number(plan.price) - discountAmount);
+
     const email = data.email.toLowerCase().trim();
     const user = await db.user.upsert({
       where: { email },
@@ -57,14 +81,30 @@ export async function POST(req: NextRequest) {
         userId: user.id,
         planId: plan.id,
         status: "PENDING",
-        amount: plan.price,
+        amount: finalAmount,
         currency: "USD",
         paymentProvider: data.paymentProvider,
-        metadata: data.compat ? { compat: data.compat } : undefined,
+        ...(coupon && discountAmount > 0 ? { couponId: coupon.id, discountAmount } : {}),
+        metadata: {
+          ...(data.compat ? { compat: data.compat } : {}),
+          ...(data.country ? { country: data.country } : {}),
+          ...(data.phone ? { phone: data.phone } : {}),
+        } || undefined,
       },
     });
 
-    return NextResponse.json({ orderId: order.id, amount: Number(plan.price), currency: "USD" });
+    // Increment coupon usage after successful order creation
+    if (coupon && discountAmount > 0) {
+      await db.coupon.update({ where: { id: coupon.id }, data: { usedCount: { increment: 1 } } });
+    }
+
+    return NextResponse.json({
+      orderId: order.id,
+      amount: finalAmount,
+      currency: "USD",
+      discountAmount,
+      originalAmount: Number(plan.price),
+    });
   } catch (err) {
     console.error("[orders] create failed", err);
     return NextResponse.json({ error: "Failed to create order" }, { status: 500 });

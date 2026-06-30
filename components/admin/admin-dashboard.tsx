@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { DollarSign, ShoppingBag, Users, Wifi, TrendingUp, TrendingDown, ArrowRight, AlertTriangle, CheckCircle, Clock, XCircle, Loader2, Bitcoin, Package } from "lucide-react";
+import { DollarSign, ShoppingBag, Users, Wifi, TrendingUp, TrendingDown, ArrowRight, AlertTriangle, CheckCircle, Clock, XCircle, Loader2, Bitcoin, Package, Trash2 } from "lucide-react";
 import Link from "next/link";
 
 interface DashboardOrder {
@@ -57,6 +57,32 @@ function timeAgo(iso: string) {
 export function AdminDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [resetting, setResetting] = useState(false);
+
+  async function handleReset() {
+    if (!confirm("⚠️ This will delete ALL orders, customers, eSIMs, tickets and reset inventory. Admin accounts, plans, and settings are preserved.\n\nType OK to confirm:")) return;
+    const confirm2 = window.prompt('Type "RESET" to confirm data wipe:');
+    if (confirm2 !== "RESET") { alert("Cancelled."); return; }
+    setResetting(true);
+    try {
+      const res = await fetch("/api/admin/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: "RESET" }),
+      });
+      const d = await res.json();
+      if (res.ok) {
+        alert(`✅ Reset complete.\nOrders deleted: ${d.deleted.orders}\nCustomers deleted: ${d.deleted.users}\nInventory reset: ${d.reset.inventoryItems} items`);
+        fetch("/api/admin/dashboard").then(r => r.json()).then(setData).catch(console.error);
+      } else {
+        alert(`❌ Reset failed: ${d.error}`);
+      }
+    } catch {
+      alert("Reset failed — network error.");
+    } finally {
+      setResetting(false);
+    }
+  }
 
   useEffect(() => {
     fetch("/api/admin/dashboard")
@@ -89,9 +115,10 @@ export function AdminDashboard() {
 
   return (
     <div className="space-y-5">
-      {/* Today's highlight */}
+      {/* Today's highlight + Reset button */}
+      <div className="flex items-start gap-3">
       <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-        className="grid grid-cols-2 gap-3 p-4 bg-gradient-to-r from-black to-gray-800 rounded-2xl text-white">
+        className="flex-1 grid grid-cols-2 gap-3 p-4 bg-gradient-to-r from-black to-gray-800 rounded-2xl text-white">
         <div>
           <p className="text-xs text-white/50 mb-1">Today&apos;s revenue</p>
           <p className="text-2xl font-black">${stats.todayRevenue.toFixed(2)}</p>
@@ -101,6 +128,13 @@ export function AdminDashboard() {
           <p className="text-2xl font-black">{stats.todayOrders}</p>
         </div>
       </motion.div>
+      <button onClick={handleReset} disabled={resetting}
+        title="Reset all demo/business data"
+        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs font-semibold hover:bg-red-100 transition-colors disabled:opacity-50 flex-shrink-0">
+        {resetting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+        Reset Data
+      </button>
+      </div>
 
       {/* Alerts */}
       {openTickets > 0 && (

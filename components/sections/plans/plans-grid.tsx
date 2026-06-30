@@ -26,6 +26,8 @@ type DbPlan = {
   badge: string | null;
   isActive: boolean;
   sortOrder: number;
+  inventoryCount?: number;
+  inStock?: boolean;
 };
 
 const DATA_LABELS: Record<DataFilter, string> = {
@@ -132,12 +134,18 @@ function PlanCard({ plan, format }: { plan: DbPlan; format: (p: number) => strin
           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-50 text-green-600">Unlimited Calls</span>
         </div>
 
-        <Button variant="outline" size="sm" className="w-full hover:text-white transition-all duration-300"
-          onClick={() => setCompatOpen(true)}
-          onMouseEnter={(e) => { const b = e.currentTarget; b.style.background = color; b.style.borderColor = color; b.style.color = "white"; }}
-          onMouseLeave={(e) => { const b = e.currentTarget; b.style.background = ""; b.style.borderColor = ""; b.style.color = ""; }}>
-          Get This Plan
-        </Button>
+        {plan.inStock === false ? (
+          <div className="w-full text-center py-2 rounded-xl border border-black/10 bg-black/5 text-sm font-semibold text-black/30 cursor-not-allowed">
+            Out of Stock
+          </div>
+        ) : (
+          <Button variant="outline" size="sm" className="w-full hover:text-white transition-all duration-300"
+            onClick={() => setCompatOpen(true)}
+            onMouseEnter={(e) => { const b = e.currentTarget; b.style.background = color; b.style.borderColor = color; b.style.color = "white"; }}
+            onMouseLeave={(e) => { const b = e.currentTarget; b.style.background = ""; b.style.borderColor = ""; b.style.color = ""; }}>
+            Get This Plan
+          </Button>
+        )}
       </div>
 
       <CompatibilityModal open={compatOpen} onClose={() => setCompatOpen(false)} planId={plan.id} />

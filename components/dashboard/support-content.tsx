@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -15,10 +15,23 @@ const FAQS = [
   { q: "What is your refund policy?", a: "We offer a full refund within 24 hours of purchase if the eSIM has not been activated. Once activated, refunds are not available." },
 ];
 
-const TICKETS = [
-  { id: "TKT-1042", subject: "eSIM not working on Samsung S25", status: "open", priority: "high", updated: "2 hours ago" },
-  { id: "TKT-0987", subject: "Request invoice for May order", status: "resolved", priority: "low", updated: "Jun 10, 2026" },
-];
+interface Ticket {
+  id: string;
+  subject: string;
+  status: string;
+  priority: string;
+  category: string | null;
+  updatedAt: string;
+  messages: { content: string }[];
+  _count: { messages: number };
+}
+
+const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
+  OPEN: { color: "text-amber-600", bg: "bg-amber-50 border-amber-100", label: "Open" },
+  IN_PROGRESS: { color: "text-blue-600", bg: "bg-blue-50 border-blue-100", label: "In Progress" },
+  RESOLVED: { color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-100", label: "Resolved" },
+  CLOSED: { color: "text-black/40", bg: "bg-black/5 border-black/5", label: "Closed" },
+};
 
 const ticketSchema = z.object({
   subject: z.string().min(5, "Please provide a subject"),
@@ -28,24 +41,52 @@ const ticketSchema = z.object({
 });
 type TicketValues = z.infer<typeof ticketSchema>;
 
-const STATUS_CONFIG = {
-  open: { color: "text-amber-600", bg: "bg-amber-50 border-amber-100", label: "Open" },
-  resolved: { color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-100", label: "Resolved" },
-  closed: { color: "text-black/40", bg: "bg-black/5 border-black/5", label: "Closed" },
-};
-
 export function SupportContent() {
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
   const [ticketSubmitted, setTicketSubmitted] = useState(false);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [loadingTickets, setLoadingTickets] = useState(true);
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<TicketValues>({
+  useEffect(() => {
+    fetch("/api/dashboard/support")
+      .then(r => r.ok ? r.json() : [])
+      .then(setTickets)
+      .catch(() => setTickets([]))
+      .finally(() => setLoadingTickets(false));
+  }, []);
+
+  const { register, handleSubmit, formState: { errors, isSubmitting }, reset } = useForm<TicketValues>({
     resolver: zodResolver(ticketSchema),
   });
 
-  const onSubmit = async () => {
-    await new Promise((r) => setTimeout(r, 1500));
-    setTicketSubmitted(true);
+  const onSubmit = async (data: TicketValues) => {
+    const res = await fetch("/api/dashboard/support", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subject: data.subject,
+        category: data.category,
+        message: data.orderId
+          ? `${data.message}\n\nRelated order: ${data.orderId}`
+          : data.message,
+      }),
+    });
+    if (res.ok) {
+      const newTicket = await res.json();
+      setTickets(prev => [newTicket, ...prev]);
+      setTicketSubmitted(true);
+      reset();
+    }
   };
+
+  function timeAgo(iso: string) {
+    const diff = Date.now() - new Date(iso).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return new Date(iso).toLocaleDateString("en", { month: "short", day: "numeric" });
+  }
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -70,25 +111,27 @@ export function SupportContent() {
         ))}
       </div>
 
-      {/* Existing tickets */}
-      {TICKETS.length > 0 && (
+      {/* Real tickets */}
+      {!loadingTickets && tickets.length > 0 && (
         <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-black/5">
-            <h3 className="font-display font-bold text-base text-black">Your tickets</h3>
+            <h3 className="font-display font-bold text-base text-black">Your tickets ({tickets.length})</h3>
           </div>
-          {TICKETS.map((ticket, i) => {
-            const cfg = STATUS_CONFIG[ticket.status as keyof typeof STATUS_CONFIG];
+          {tickets.map((ticket, i) => {
+            const cfg = STATUS_CONFIG[ticket.status] ?? STATUS_CONFIG.OPEN;
             return (
-              <div key={ticket.id} className={`flex items-center gap-4 px-5 py-4 ${i < TICKETS.length - 1 ? "border-b border-black/5" : ""} hover:bg-black/[0.01] cursor-pointer transition-colors`}>
+              <div key={ticket.id} className={`flex items-center gap-4 px-5 py-4 ${i < tickets.length - 1 ? "border-b border-black/5" : ""} hover:bg-black/[0.01] cursor-pointer transition-colors`}>
                 <div className="w-9 h-9 rounded-xl bg-black/5 flex items-center justify-center flex-shrink-0">
                   <MessageCircle className="w-4 h-4 text-black/40" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-black">{ticket.subject}</div>
-                  <div className="text-xs text-black/30">{ticket.id} · Updated {ticket.updated}</div>
+                  <div className="text-xs text-black/30">
+                    {ticket.id.slice(0, 8)} · {ticket.category ?? "General"} · Updated {timeAgo(ticket.updatedAt)}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {ticket.priority === "high" && (
+                  {(ticket.priority === "HIGH" || ticket.priority === "URGENT") && (
                     <span className="text-xs font-medium text-red-500 bg-red-50 px-2 py-0.5 rounded-full border border-red-100">High</span>
                   )}
                   <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full border ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>
@@ -110,6 +153,9 @@ export function SupportContent() {
             </div>
             <h4 className="font-semibold text-black mb-1">Ticket submitted!</h4>
             <p className="text-sm text-black/50">We&apos;ll respond within 2 hours. Check your email for updates.</p>
+            <button onClick={() => setTicketSubmitted(false)} className="mt-4 text-xs text-blue-600 font-medium hover:underline">
+              Open another ticket
+            </button>
           </motion.div>
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -120,11 +166,12 @@ export function SupportContent() {
                   <option value="">Select…</option>
                   <option>eSIM Activation</option>
                   <option>Connectivity Issue</option>
-                  <option>Billing & Payments</option>
+                  <option>Billing &amp; Payments</option>
                   <option>Order Status</option>
                   <option>Refund Request</option>
                   <option>Other</option>
                 </select>
+                {errors.category && <p className="mt-1 text-xs text-red-500">{errors.category.message}</p>}
               </div>
               <div>
                 <label className="text-xs font-medium text-black/50 mb-1.5 block">Related order (optional)</label>

@@ -8,7 +8,7 @@ import { z } from "zod";
 import { useRouter } from "next/navigation";
 import {
   CreditCard, Loader2, Mail, User, Lock, Shield,
-  ChevronRight, Smartphone, Bitcoin, Phone, Globe,
+  ChevronRight, Smartphone, Bitcoin, Phone, Globe, Tag, Check, X,
 } from "lucide-react";
 import { CryptoPayment } from "./crypto-payment";
 
@@ -91,6 +91,43 @@ export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
   const [payError, setPayError] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
 
+  // Coupon state
+  const [couponCode, setCouponCode] = useState("");
+  const [couponInput, setCouponInput] = useState("");
+  const [couponApplied, setCouponApplied] = useState<{
+    code: string; discountAmount: number; finalAmount: number; discountType: string; discountValue: number;
+  } | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+
+  async function applyCoupon() {
+    if (!couponInput.trim()) return;
+    setCouponLoading(true);
+    setCouponError(null);
+    try {
+      const res = await fetch("/api/checkout/coupon/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: couponInput, planId: plan.id, amount: plan.price / 100 }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setCouponError(data.error ?? "Invalid coupon"); return; }
+      setCouponApplied(data);
+      setCouponCode(data.code);
+    } catch {
+      setCouponError("Could not validate coupon");
+    } finally {
+      setCouponLoading(false);
+    }
+  }
+
+  function removeCoupon() {
+    setCouponApplied(null);
+    setCouponCode("");
+    setCouponInput("");
+    setCouponError(null);
+  }
+
   const onContactSubmit = (data: ContactValues) => {
     setContactData(data);
     setStep("payment");
@@ -115,6 +152,7 @@ export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
           paymentProvider: provider,
           ...(contactData.phone ? { phone: contactData.phone } : {}),
           ...(contactData.country ? { country: contactData.country } : {}),
+          ...(couponCode ? { couponCode } : {}),
         }),
       });
       const orderJson = await orderRes.json();
@@ -144,7 +182,9 @@ export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
   const handlePayPal = () => startPayment("PAYPAL", { url: "/api/checkout/paypal", key: "approvalUrl" });
   const handleAppleGooglePay = () => startPayment("APPLE_PAY", { url: "/api/checkout/stripe", key: "url" });
 
-  const total = plan.price - discount;
+  const total = couponApplied
+    ? Math.round(couponApplied.finalAmount * 100)
+    : plan.price - discount;
 
   return (
     <div className="space-y-5">
@@ -204,6 +244,34 @@ export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
                     </div>
                   </div>
                 </div>
+                {/* Coupon code */}
+                <div>
+                  <label className="text-xs font-medium text-black/50 mb-1.5 block">Coupon code <span className="text-black/25">(optional)</span></label>
+                  {couponApplied ? (
+                    <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                      <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                      <span className="font-mono text-sm font-bold text-emerald-700 flex-1">{couponApplied.code}</span>
+                      <span className="text-xs text-emerald-600 font-medium">−${couponApplied.discountAmount.toFixed(2)}</span>
+                      <button type="button" onClick={removeCoupon} className="text-emerald-400 hover:text-emerald-700 transition-colors"><X className="w-3.5 h-3.5" /></button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Tag className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-black/30" />
+                        <input value={couponInput} onChange={e => setCouponInput(e.target.value.toUpperCase())}
+                          onKeyDown={e => e.key === "Enter" && (e.preventDefault(), applyCoupon())}
+                          placeholder="SUMMER20"
+                          className="w-full pl-10 pr-4 py-3 rounded-xl border border-black/10 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all font-mono uppercase" />
+                      </div>
+                      <button type="button" onClick={applyCoupon} disabled={!couponInput.trim() || couponLoading}
+                        className="px-4 py-3 rounded-xl bg-black text-white text-sm font-semibold hover:bg-black/80 transition-colors disabled:opacity-40">
+                        {couponLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Apply"}
+                      </button>
+                    </div>
+                  )}
+                  {couponError && <p className="mt-1 text-xs text-red-500">{couponError}</p>}
+                </div>
+
                 <motion.button whileTap={{ scale: 0.98 }} type="submit"
                   className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-black text-white font-semibold text-sm hover:bg-black/80 transition-all shadow-md shadow-black/10">
                   Continue to payment <ChevronRight className="w-4 h-4" />

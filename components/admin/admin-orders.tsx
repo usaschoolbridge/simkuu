@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, CheckCircle, Clock, XCircle, RefreshCw, Eye, Download,
-  Loader2, Copy, Check, Bitcoin, X,
+  Loader2, Copy, Check, Bitcoin, X, ChevronDown,
 } from "lucide-react";
 
 interface EsimInfo {
@@ -257,11 +257,26 @@ export function AdminOrdersContent() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-black/40 whitespace-nowrap">{fmt(order.createdAt)}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 flex items-center gap-1">
                         <button onClick={() => setDetail(order)}
                           className="p-1.5 rounded-lg hover:bg-black/5 text-black/25 hover:text-black/60 transition-colors">
                           <Eye className="w-3.5 h-3.5" />
                         </button>
+                        <select
+                          defaultValue={order.status}
+                          onChange={async (e) => {
+                            await fetch(`/api/admin/orders/${order.id}`, {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ status: e.target.value }),
+                            });
+                            fetchOrders();
+                          }}
+                          className="text-xs border border-black/10 rounded-lg px-1 py-1 bg-white text-black/60 outline-none focus:border-blue-400 cursor-pointer">
+                          {["PENDING","PROCESSING","ACTIVE","EXPIRED","CANCELLED","REFUNDED"].map(s => (
+                            <option key={s} value={s}>{s.charAt(0) + s.slice(1).toLowerCase()}</option>
+                          ))}
+                        </select>
                       </td>
                     </motion.tr>
                   );

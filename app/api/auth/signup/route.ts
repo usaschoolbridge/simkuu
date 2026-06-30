@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { signToken, createSessionCookie } from "@/lib/session";
+import { sendWelcomeEmail } from "@/lib/email";
 
 const signupSchema = z
   .object({
@@ -58,6 +59,11 @@ export async function POST(req: NextRequest) {
         hashedPassword,
       },
     });
+
+    // Send welcome email (best-effort — never block signup)
+    sendWelcomeEmail(user.email, user.name ?? fullName).catch(e =>
+      console.error("[signup] welcome email failed:", e)
+    );
 
     const token = signToken({
       userId: user.id,

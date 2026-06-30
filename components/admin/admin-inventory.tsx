@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Boxes, Upload, AlertTriangle, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Boxes, Upload, AlertTriangle, CheckCircle2, Loader2, RefreshCw, Download, FileText } from "lucide-react";
 
 type Stock = {
   totals: { AVAILABLE: number; RESERVED: number; SOLD: number };
@@ -12,7 +12,10 @@ type Stock = {
 
 type UploadResult = { inserted: number; skippedDuplicates: number; invalidRows: number; errors: string[]; batchId: string };
 
-const CSV_TEMPLATE = "carrier,iccid,lpaActivationString,planId,country,expiresAt\nTMOBILE,8910000000000000001,LPA:1$rsp.example.com$ABC-123,,US,";
+const CSV_TEMPLATE = `carrier,iccid,lpaActivationString,planId,country,expiresAt,notes
+TMOBILE,8910000000000000001,LPA:1$rsp.example.com$ABC-123,,US,,Sample T-Mobile eSIM
+VERIZON,8910000000000000002,LPA:1$rsp.example.com$DEF-456,,US,,Sample Verizon eSIM
+ATT,8910000000000000003,LPA:1$rsp.example.com$GHI-789,,US,,Sample AT&T eSIM`;
 
 export function AdminInventoryContent() {
   const [stock, setStock] = useState<Stock | null>(null);
@@ -20,6 +23,22 @@ export function AdminInventoryContent() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function downloadTemplate() {
+    const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "simkuu-inventory-template.csv"; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault(); setDragging(false);
+    const f = e.dataTransfer.files[0];
+    if (f) onFile(f);
+  }
 
   const loadStock = useCallback(async () => {
     try {
@@ -113,27 +132,47 @@ export function AdminInventoryContent() {
 
       {/* Bulk upload */}
       <div className="bg-white rounded-2xl border border-black/[0.06] p-5">
-        <h2 className="font-display font-bold text-black mb-1">Bulk upload</h2>
-        <p className="text-xs text-black/40 mb-3">
-          CSV columns: <code className="font-mono">carrier, iccid, lpaActivationString, planId, country, expiresAt</code>.
-          Duplicate ICCIDs are skipped automatically.
-        </p>
-        <div className="flex items-center gap-3 mb-3">
-          <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-black/10 text-sm cursor-pointer hover:bg-black/5">
-            <Upload className="w-4 h-4" /> Choose CSV
-            <input type="file" accept=".csv,text/csv" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
-          </label>
-          <button onClick={() => setCsv(CSV_TEMPLATE)} className="text-xs text-blue-600 hover:underline">Insert template</button>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-display font-bold text-black">Bulk upload</h2>
+          <div className="flex gap-2">
+            <button onClick={downloadTemplate}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-black/10 text-xs font-medium text-black/60 hover:bg-black/5 transition-colors">
+              <Download className="w-3.5 h-3.5" /> Download template
+            </button>
+            <button onClick={() => setCsv(CSV_TEMPLATE)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-black/10 text-xs font-medium text-black/60 hover:bg-black/5 transition-colors">
+              <FileText className="w-3.5 h-3.5" /> Insert sample
+            </button>
+          </div>
         </div>
-        <textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={6}
+        <p className="text-xs text-black/40 mb-4">
+          Required columns: <code className="font-mono bg-black/5 px-1 rounded">carrier</code> (TMOBILE / VERIZON / ATT / MVNO),{" "}
+          <code className="font-mono bg-black/5 px-1 rounded">iccid</code>,{" "}
+          <code className="font-mono bg-black/5 px-1 rounded">lpaActivationString</code>. Optional: planId, country, expiresAt. Duplicate ICCIDs are skipped.
+        </p>
+
+        {/* Drag-and-drop zone */}
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={handleDrop}
+          onClick={() => fileRef.current?.click()}
+          className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors mb-4 ${dragging ? "border-blue-400 bg-blue-50" : "border-black/10 hover:border-blue-300 hover:bg-black/[0.01]"}`}>
+          <Upload className="w-6 h-6 text-black/30 mx-auto mb-2" />
+          <p className="text-sm text-black/50">Drag & drop a CSV file here, or <span className="text-blue-600 font-medium">click to browse</span></p>
+          <p className="text-xs text-black/30 mt-1">Supports .csv files</p>
+          <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
+        </div>
+
+        <textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={8}
           placeholder={CSV_TEMPLATE}
-          className="w-full font-mono text-xs p-3 rounded-xl border border-black/10 outline-none focus:border-blue-500" />
+          className="w-full font-mono text-xs p-3 rounded-xl border border-black/10 outline-none focus:border-blue-500 resize-y" />
         <div className="flex items-center gap-3 mt-3">
           <button onClick={upload} disabled={busy}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-black text-white text-sm font-semibold hover:bg-black/80 disabled:opacity-60">
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            {busy ? "Uploading…" : "Upload inventory"}
+            {busy ? "Uploading…" : "Import inventory"}
           </button>
           {error && <span className="text-sm text-red-500">{error}</span>}
         </div>

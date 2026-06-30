@@ -1,39 +1,60 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Search, Filter, CheckCircle, Clock, XCircle, RefreshCw, Download, Eye } from "lucide-react";
+import { Search, CheckCircle, Clock, XCircle, RefreshCw, Eye, Loader2 } from "lucide-react";
 
-const ORDERS = [
-  { id: "ORD-8821", plan: "T-Mobile Unlimited", carrier: "T-Mobile", date: "Jun 20, 2026", amount: "$29.99", status: "active", payment: "Visa •••• 4242" },
-  { id: "ORD-8743", plan: "Verizon 50GB", carrier: "Verizon", date: "Jun 10, 2026", amount: "$39.99", status: "active", payment: "PayPal" },
-  { id: "ORD-8601", plan: "AT&T 30GB", carrier: "AT&T", date: "May 28, 2026", amount: "$24.99", status: "expired", payment: "Visa •••• 4242" },
-  { id: "ORD-8490", plan: "T-Mobile 10GB", carrier: "T-Mobile", date: "May 15, 2026", amount: "$14.99", status: "completed", payment: "Crypto (BTC)" },
-  { id: "ORD-8341", plan: "Verizon 100GB", carrier: "Verizon", date: "May 1, 2026", amount: "$59.99", status: "completed", payment: "Visa •••• 4242" },
-  { id: "ORD-8102", plan: "Mint Mobile 10GB", carrier: "Mint", date: "Apr 15, 2026", amount: "$19.99", status: "completed", payment: "PayPal" },
-  { id: "ORD-7988", plan: "T-Mobile 5GB", carrier: "T-Mobile", date: "Apr 1, 2026", amount: "$9.99", status: "completed", payment: "USDT" },
-  { id: "ORD-7801", plan: "AT&T Unlimited", carrier: "AT&T", date: "Mar 20, 2026", amount: "$34.99", status: "completed", payment: "Visa •••• 4242" },
-];
+interface Order {
+  id: string;
+  displayId: string;
+  invoiceNo: string | null;
+  plan: string;
+  carrier: string;
+  date: string;
+  amount: string;
+  status: string;
+  paymentProvider: string;
+}
 
-const STATUS_CONFIG = {
+const STATUS_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   active: { icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-100", label: "Active" },
   completed: { icon: CheckCircle, color: "text-blue-600", bg: "bg-blue-50 border-blue-100", label: "Completed" },
   expired: { icon: XCircle, color: "text-black/30", bg: "bg-black/5 border-black/5", label: "Expired" },
   pending: { icon: Clock, color: "text-amber-600", bg: "bg-amber-50 border-amber-100", label: "Pending" },
+  processing: { icon: Clock, color: "text-blue-600", bg: "bg-blue-50 border-blue-100", label: "Processing" },
   refunded: { icon: RefreshCw, color: "text-purple-600", bg: "bg-purple-50 border-purple-100", label: "Refunded" },
+  cancelled: { icon: XCircle, color: "text-black/30", bg: "bg-black/5 border-black/5", label: "Cancelled" },
 };
 
 export function OrdersContent() {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
-  const filtered = ORDERS.filter((o) => {
-    const matchSearch = o.id.toLowerCase().includes(search.toLowerCase()) ||
+  useEffect(() => {
+    fetch("/api/dashboard/orders")
+      .then(r => r.ok ? r.json() : [])
+      .then(setOrders)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = orders.filter((o) => {
+    const matchSearch = o.displayId.toLowerCase().includes(search.toLowerCase()) ||
       o.plan.toLowerCase().includes(search.toLowerCase()) ||
       o.carrier.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "all" || o.status === statusFilter;
     return matchSearch && matchStatus;
   });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-32 gap-2 text-black/30">
+        <Loader2 className="w-6 h-6 animate-spin" /> Loading orders…
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -65,22 +86,22 @@ export function OrdersContent() {
 
       {/* Table */}
       <div className="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
-        {/* Header */}
         <div className="grid grid-cols-12 gap-4 px-5 py-3 border-b border-black/5 text-xs font-semibold text-black/30 uppercase tracking-wide">
-          <div className="col-span-2">Order</div>
+          <div className="col-span-3">Order</div>
           <div className="col-span-3">Plan</div>
           <div className="col-span-2 hidden md:block">Date</div>
           <div className="col-span-2 hidden md:block">Payment</div>
           <div className="col-span-1">Amount</div>
           <div className="col-span-1">Status</div>
-          <div className="col-span-1 text-right">Actions</div>
         </div>
 
-        {filtered.length === 0 ? (
-          <div className="py-16 text-center text-black/30 text-sm">No orders found.</div>
+        {orders.length === 0 ? (
+          <div className="py-16 text-center text-black/30 text-sm">No orders yet.</div>
+        ) : filtered.length === 0 ? (
+          <div className="py-16 text-center text-black/30 text-sm">No orders match your filter.</div>
         ) : (
           filtered.map((order, i) => {
-            const cfg = STATUS_CONFIG[order.status as keyof typeof STATUS_CONFIG];
+            const cfg = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.pending;
             const Icon = cfg.icon;
             return (
               <motion.div
@@ -92,15 +113,15 @@ export function OrdersContent() {
                   i < filtered.length - 1 ? "border-b border-black/5" : ""
                 } hover:bg-black/[0.01] transition-colors`}
               >
-                <div className="col-span-2">
-                  <span className="font-mono text-sm font-medium text-black">{order.id}</span>
+                <div className="col-span-3">
+                  <span className="font-mono text-sm font-medium text-black">{order.displayId}</span>
                 </div>
                 <div className="col-span-3">
                   <div className="text-sm font-medium text-black">{order.plan}</div>
                   <div className="text-xs text-black/30">{order.carrier}</div>
                 </div>
                 <div className="col-span-2 hidden md:block text-sm text-black/50">{order.date}</div>
-                <div className="col-span-2 hidden md:block text-sm text-black/50">{order.payment}</div>
+                <div className="col-span-2 hidden md:block text-sm text-black/50">{order.paymentProvider}</div>
                 <div className="col-span-1 text-sm font-semibold text-black">{order.amount}</div>
                 <div className="col-span-1">
                   <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border ${cfg.bg} ${cfg.color}`}>
@@ -108,21 +129,13 @@ export function OrdersContent() {
                     {cfg.label}
                   </span>
                 </div>
-                <div className="col-span-1 flex items-center justify-end gap-1">
-                  <button className="p-1.5 rounded-lg hover:bg-black/5 transition-colors text-black/30 hover:text-black/60">
-                    <Eye className="w-3.5 h-3.5" />
-                  </button>
-                  <button className="p-1.5 rounded-lg hover:bg-black/5 transition-colors text-black/30 hover:text-black/60">
-                    <Download className="w-3.5 h-3.5" />
-                  </button>
-                </div>
               </motion.div>
             );
           })
         )}
       </div>
 
-      <p className="text-xs text-black/30 text-center">Showing {filtered.length} of {ORDERS.length} orders</p>
+      <p className="text-xs text-black/30 text-center">Showing {filtered.length} of {orders.length} orders</p>
     </div>
   );
 }

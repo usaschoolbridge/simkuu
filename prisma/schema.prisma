@@ -98,6 +98,7 @@ enum BlogStatus {
 
 model User {
   id                 String    @id @default(cuid())
+  customerNo         Int       @default(autoincrement()) @unique
   email              String    @unique
   emailVerified      DateTime?
   name               String?
@@ -269,6 +270,7 @@ model InventoryItem {
 
 model Order {
   id              String          @id @default(cuid())
+  orderNo         Int             @default(autoincrement()) @unique
   userId          String
   user            User            @relation(fields: [userId], references: [id])
   planId          String
@@ -364,6 +366,7 @@ model SupportTicket {
   userId      String
   user        User            @relation(fields: [userId], references: [id])
   subject     String
+  category    String?
   status      TicketStatus    @default(OPEN)
   priority    TicketPriority  @default(MEDIUM)
   messages    TicketMessage[]

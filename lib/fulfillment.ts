@@ -118,7 +118,24 @@ export async function fulfillOrder(orderId: string): Promise<FulfillmentResult> 
       await tx.inventoryItem.update({ where: { id: itemId }, data: { qrCode } });
 
       // Move the order forward.
-      await tx.order.update({ where: { id: order.id }, data: { status: "ACTIVE" } });
+      const updatedOrder = await tx.order.update({ where: { id: order.id }, data: { status: "ACTIVE" } });
+
+      // Create Invoice record if not already present
+      const existingInvoice = await tx.invoice.findUnique({ where: { orderId: order.id } });
+      if (!existingInvoice) {
+        const year = new Date().getFullYear();
+        const invoiceNo = `INV-${year}-${String(updatedOrder.orderNo).padStart(6, "0")}`;
+        await tx.invoice.create({
+          data: {
+            orderId: order.id,
+            invoiceNo,
+            amount: order.amount,
+            currency: order.currency,
+            issuedAt: new Date(),
+            paidAt: new Date(),
+          },
+        });
+      }
 
       return { kind: "created" as const, esimId: esim.id };
     });
