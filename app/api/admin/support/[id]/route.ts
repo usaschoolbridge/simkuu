@@ -33,9 +33,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     // Handle posting a reply message
     if (body.message) {
-      // Find an admin user to use as author (or use a system approach)
-      const admin = await db.user.findFirst({ where: { role: { in: ["ADMIN", "SUPER_ADMIN"] } } });
-      if (!admin) return NextResponse.json({ error: "No admin user found" }, { status: 400 });
+      // Find an admin/super-admin user; fall back to any user as system author
+      const admin =
+        (await db.user.findFirst({ where: { role: { in: ["ADMIN", "SUPER_ADMIN"] } } })) ??
+        (await db.user.findFirst({ orderBy: { createdAt: "asc" } }));
+      if (!admin) return NextResponse.json({ error: "No users found in system" }, { status: 400 });
 
       const message = await db.ticketMessage.create({
         data: {
