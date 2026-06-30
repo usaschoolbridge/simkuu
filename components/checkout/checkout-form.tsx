@@ -76,9 +76,10 @@ interface CheckoutFormProps {
     data: string; carrier: string; signal: string;
   };
   discount?: number;
+  onCouponApply?: (code: string, discountCents: number) => void;
 }
 
-export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
+export function CheckoutForm({ plan, discount = 0, onCouponApply }: CheckoutFormProps) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
   const [step, setStep] = useState<"contact" | "payment">("contact");
   const [contactData, setContactData] = useState<ContactValues | null>(null);
@@ -114,6 +115,7 @@ export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
       if (!res.ok) { setCouponError(data.error ?? "Invalid coupon"); return; }
       setCouponApplied(data);
       setCouponCode(data.code);
+      onCouponApply?.(data.code, Math.round(data.discountAmount * 100));
     } catch {
       setCouponError("Could not validate coupon");
     } finally {
@@ -126,6 +128,7 @@ export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
     setCouponCode("");
     setCouponInput("");
     setCouponError(null);
+    onCouponApply?.("", 0);
   }
 
   const onContactSubmit = (data: ContactValues) => {

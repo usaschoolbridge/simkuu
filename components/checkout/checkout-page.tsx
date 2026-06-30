@@ -23,7 +23,13 @@ interface CheckoutPageProps {
 }
 
 export function CheckoutPage({ plan }: CheckoutPageProps) {
-  const [discount, setDiscount] = useState(0);
+  const [couponDiscount, setCouponDiscount] = useState(0);
+  const [couponCode, setCouponCode] = useState("");
+
+  function handleCouponApply(code: string, discountCents: number) {
+    setCouponDiscount(discountCents);
+    setCouponCode(code);
+  }
 
   return (
     <div className="min-h-screen bg-gray-50/50">
@@ -55,14 +61,19 @@ export function CheckoutPage({ plan }: CheckoutPageProps) {
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
           {/* Form */}
           <div className="lg:col-span-3">
-            <CheckoutForm plan={plan} discount={discount} />
+            <CheckoutForm
+              plan={plan}
+              discount={couponDiscount}
+              onCouponApply={handleCouponApply}
+            />
           </div>
 
-          {/* Summary */}
+          {/* Summary — receives real discount from CheckoutForm via page state */}
           <div className="lg:col-span-2 lg:sticky lg:top-20">
             <OrderSummary
               plan={plan}
-              onCouponApply={(code, amt) => setDiscount(amt)}
+              appliedDiscount={couponDiscount}
+              appliedCouponCode={couponCode || undefined}
             />
           </div>
         </div>
