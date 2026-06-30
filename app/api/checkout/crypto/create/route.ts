@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { rateLimit, checkoutLimiter } from "@/lib/rate-limit";
-import QRCode from "qrcode";
+import { generateQrDataUrl } from "@/lib/fulfillment";
 import { createPayment, coinMeta, NOWPAYMENTS_API_KEY } from "@/lib/payments/nowpayments";
 import { sendCryptoOrderPlaced } from "@/lib/email";
 
@@ -113,10 +113,7 @@ export async function POST(req: NextRequest) {
       usdAmount: Number(plan.price),
     }).catch((e) => console.error("[crypto-create] order-placed email failed", e));
 
-    const qrDataUrl = await QRCode.toDataURL(payment.payAddress, {
-      errorCorrectionLevel: "M", margin: 1, width: 320,
-      color: { dark: "#000000", light: "#FFFFFF" },
-    }).catch(() => null);
+    const qrDataUrl = await generateQrDataUrl(payment.payAddress).catch(() => null);
 
     return NextResponse.json({
       orderId: order.id,
