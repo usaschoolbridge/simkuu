@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { signToken, createSessionCookie } from "@/lib/session";
 import { sendWelcomeEmail } from "@/lib/email";
+import { cookies } from "next/headers";
 
 const signupSchema = z
   .object({
@@ -17,6 +18,7 @@ const signupSchema = z
       .regex(/[A-Z]/, "Password must contain an uppercase letter")
       .regex(/[0-9]/, "Password must contain a number"),
     confirmPassword: z.string(),
+    referralCode: z.string().optional(),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: "Passwords do not match",
@@ -40,8 +42,12 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const { fullName, email, password } = parsed.data;
+    const { fullName, email, password, referralCode: bodyRefCode } = parsed.data;
     const normalizedEmail = email.toLowerCase();
+
+    // Read referral code from cookie or body
+    const cookieStore = await cookies();
+    const refCode = bodyRefCode || cookieStore.get("simkuu_referral")?.value;
 
     const existing = await db.user.findUnique({ where: { email: normalizedEmail } });
     if (existing) {
@@ -51,12 +57,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Validate referral code (prevent self-referral checked by email)
+    let referredById: string | undefined;
+    if (refCode) {
+      const referrer = await db.user.findUnique({
+        where: { referralCode: refCode },
+        select: { id: true, email: true },
+      });
+      if (referrer && referrer.email !== normalizedEmail) {
+        referredById = referrer.id;
+      }
+    }
+
     const hashedPassword = await bcrypt.hash(password, 12);
     const user = await db.user.create({
       data: {
         name: fullName,
         email: normalizedEmail,
         hashedPassword,
+        ...(referredById ? { referredById } : {}),
       },
     });
 
@@ -80,6 +99,8 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
     res.cookies.set(cookie);
+    // Clear referral cookie
+    res.cookies.set("simkuu_referral", "", { maxAge: 0, path: "/" });
     return res;
   } catch (e) {
     console.error("[signup]", e);

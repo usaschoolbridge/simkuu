@@ -189,7 +189,7 @@ export async function fulfillAndNotify(orderId: string, paymentId?: string): Pro
     try {
       const order = await db.order.findUnique({
         where: { id: orderId },
-        include: { user: true },
+        include: { user: { select: { id: true, email: true, name: true, referredById: true } } },
       });
       const email = order?.user?.email;
       if (email) {
@@ -202,9 +202,61 @@ export async function fulfillAndNotify(orderId: string, paymentId?: string): Pro
           qrUrl: result.esim.qrCode,
         });
       }
+
+      // Referral reward: if this is the user's first completed order and they were referred
+      if (order?.user?.referredById) {
+        const userId = order.user.id;
+        const referrerId = order.user.referredById;
+
+        // Check if this is their first paid order
+        const priorOrders = await db.order.count({
+          where: { userId, status: { in: ["ACTIVE"] }, id: { not: orderId } },
+        });
+        // Check reward not already given
+        const existingEarning = await db.referralEarning.findFirst({ where: { userId: referrerId, orderId } });
+
+        if (priorOrders === 0 && !existingEarning) {
+          const REFERRAL_REWARD = 5; // $5 per successful referral
+
+          // Credit referrer wallet and create earning record
+          const updatedReferrer = await db.user.update({
+            where: { id: referrerId },
+            data: { walletBalance: { increment: REFERRAL_REWARD } },
+            select: { walletBalance: true },
+          });
+
+          await db.referralEarning.create({
+            data: { userId: referrerId, amount: REFERRAL_REWARD, orderId, isPaid: true, paidAt: new Date() },
+          });
+
+          await db.walletTransaction.create({
+            data: {
+              userId: referrerId,
+              type: "REFERRAL_REWARD",
+              amount: REFERRAL_REWARD,
+              balanceAfter: Number(updatedReferrer.walletBalance),
+              description: `Referral reward — ${order.user.name ?? order.user.email}`,
+              reference: orderId,
+              status: "COMPLETED",
+            },
+          });
+
+          await db.notification.create({
+            data: {
+              userId: referrerId,
+              title: "Referral reward earned!",
+              body: `You earned $${REFERRAL_REWARD.toFixed(2)} for referring ${order.user.name ?? "a friend"}.`,
+              type: "referral",
+              href: "/dashboard/referrals",
+            },
+          });
+
+          console.log(`[fulfillment] Referral reward $${REFERRAL_REWARD} credited to ${referrerId}`);
+        }
+      }
     } catch (e) {
-      console.error("[fulfillment] email send failed for order", orderId, e);
-      // Email failure must not fail the webhook — eSIM is already provisioned.
+      console.error("[fulfillment] post-fulfillment actions failed for order", orderId, e);
+      // Never fail the webhook for these secondary actions
     }
   }
 

@@ -17,6 +17,62 @@ async function mergeOrderMeta(orderId: string, patch: Record<string, unknown>) {
   }
 }
 
+/** Handle a confirmed wallet top-up payment */
+async function handleWalletTopup(walletTxId: string, paymentId: string | number) {
+  if (!db) return;
+  try {
+    const walletTx = await db.walletTransaction.findUnique({ where: { id: walletTxId } });
+    if (!walletTx || walletTx.status === "COMPLETED") return; // already processed
+
+    const amount = Number(walletTx.amount);
+
+    // Credit wallet atomically
+    const updatedUser = await db.user.update({
+      where: { id: walletTx.userId },
+      data: { walletBalance: { increment: amount } },
+      select: { walletBalance: true, email: true, name: true },
+    });
+
+    const newBalance = Number(updatedUser.walletBalance);
+
+    // Mark transaction completed with new balance
+    await db.walletTransaction.update({
+      where: { id: walletTxId },
+      data: {
+        status: "COMPLETED",
+        balanceAfter: newBalance,
+        paymentId: String(paymentId),
+      },
+    });
+
+    // Create a notification
+    await db.notification.create({
+      data: {
+        userId: walletTx.userId,
+        title: "Wallet topped up",
+        body: `$${amount.toFixed(2)} has been added to your wallet. New balance: $${newBalance.toFixed(2)}`,
+        type: "wallet",
+        href: "/dashboard/wallet",
+      },
+    });
+
+    console.log(`[nowpayments-webhook] Wallet top-up credited — userId: ${walletTx.userId}, amount: $${amount}, newBalance: $${newBalance}`);
+  } catch (err) {
+    console.error("[nowpayments-webhook] Wallet topup error:", err);
+  }
+}
+
+/** Fail a wallet top-up */
+async function handleWalletTopupFailed(walletTxId: string) {
+  if (!db) return;
+  try {
+    await db.walletTransaction.update({
+      where: { id: walletTxId },
+      data: { status: "FAILED" },
+    }).catch(() => {});
+  } catch { /* non-fatal */ }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as Record<string, unknown>;
@@ -44,7 +100,23 @@ export async function POST(req: NextRequest) {
     const payCurrency = body.pay_currency as string;
     const txHash = body.payin_hash as string | undefined;
 
-    // Always record the latest status + tx hash on the order for the admin panel.
+    // Check if this is a wallet top-up (wallet tx ids are cuid format, order ids too,
+    // but we distinguish by checking WalletTransaction table first)
+    const walletTx = db ? await db.walletTransaction.findUnique({ where: { id: orderId } }) : null;
+    const isWalletTopup = !!walletTx;
+
+    if (isWalletTopup) {
+      if (PAID_STATUSES.includes(status)) {
+        console.log(`[nowpayments-webhook] WALLET TOPUP PAID — txId: ${orderId}`);
+        await handleWalletTopup(orderId, paymentId);
+      } else if (FAILED_STATUSES.includes(status)) {
+        console.log(`[nowpayments-webhook] WALLET TOPUP FAILED — txId: ${orderId}`);
+        await handleWalletTopupFailed(orderId);
+      }
+      return NextResponse.json({ received: true });
+    }
+
+    // Standard eSIM order flow
     await mergeOrderMeta(orderId, {
       paymentStatus: status,
       ...(txHash ? { txHash } : {}),
