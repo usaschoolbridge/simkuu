@@ -6,8 +6,8 @@ import { db } from "@/lib/db";
 
 const schema = z.object({
   code: z.string().min(1),
-  planId: z.string().min(1),
-  amount: z.number().positive(), // USD cents or dollars — we treat as dollars
+  planId: z.string().optional(), // only needed when coupon has plan restrictions
+  amount: z.number().positive(),
 });
 
 export async function POST(req: NextRequest) {
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
     // If plan-restricted, validate plan
-    if (coupon.applicablePlans.length > 0 && !coupon.applicablePlans.includes(planId)) {
+    if (coupon.applicablePlans.length > 0 && planId && !coupon.applicablePlans.includes(planId)) {
       return NextResponse.json({ error: "This coupon is not valid for this plan" }, { status: 400 });
     }
 
