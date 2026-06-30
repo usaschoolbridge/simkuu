@@ -13,9 +13,12 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    if (!db) {
+      return NextResponse.json({ error: "DB not configured" }, { status: 503 });
+    }
     if (!NOWPAYMENTS_API_KEY) {
       return NextResponse.json(
-        { error: "Crypto payments not configured. Please contact support." },
+        { error: "Crypto payments are not enabled yet. Please choose another method or contact support." },
         { status: 503 }
       );
     }
@@ -31,45 +34,55 @@ export async function POST(req: NextRequest) {
     const { planId, email, name } = parsed.data;
 
     const plan = await db.plan.findUnique({ where: { id: planId } });
-    if (!plan) {
-      return NextResponse.json({ error: "Plan not found" }, { status: 404 });
+    if (!plan || !plan.isActive) {
+      return NextResponse.json({ error: "Plan not available" }, { status: 404 });
     }
 
-    const orderId = `SIMKUU-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+    // Upsert the buyer and create a real PENDING order. The order's cuid is
+    // used as the NOWPayments order_id so the IPN webhook can fulfill it.
+    const cleanEmail = email.toLowerCase().trim();
+    const user = await db.user.upsert({
+      where: { email: cleanEmail },
+      update: { name },
+      create: { email: cleanEmail, name },
+    });
+
+    const order = await db.order.create({
+      data: {
+        userId: user.id,
+        planId: plan.id,
+        status: "PENDING",
+        amount: plan.price,
+        currency: "USD",
+        paymentProvider: "CRYPTO",
+      },
+    });
+
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://simkuu.com";
 
     const invoice = await createInvoice({
       amount: Number(plan.price),
       currency: "usd",
-      orderId,
+      orderId: order.id,
       description: `${plan.name} — eSIM Plan`,
       callbackUrl: `${baseUrl}/api/webhooks/nowpayments`,
-      successUrl: `${baseUrl}/checkout/success?orderId=${orderId}&method=crypto`,
+      successUrl: `${baseUrl}/checkout/success?orderId=${order.id}&method=crypto`,
       cancelUrl: `${baseUrl}/checkout?cancelled=1`,
     });
 
-    // Store pending order metadata for webhook lookup
-    await db.order.create({
-      data: {
-        reference: orderId,
-        planId,
-        customerEmail: email,
-        customerName: name,
-        amount: plan.price,
-        currency: "USD",
-        status: "PENDING",
-        paymentMethod: "CRYPTO",
-        paymentReference: invoice.id,
-      },
-    }).catch(() => {
-      // Order table may not exist yet — non-blocking
-    });
+    // Persist the hosted invoice URL + provider reference on the order.
+    await db.order
+      .update({
+        where: { id: order.id },
+        data: { invoiceUrl: invoice.invoiceUrl, paymentId: invoice.id },
+      })
+      .catch(() => {});
 
     return NextResponse.json({
       success: true,
       paymentUrl: invoice.invoiceUrl,
       invoiceId: invoice.id,
-      orderId,
+      orderId: order.id,
       amount: invoice.priceAmount,
       currency: invoice.priceCurrency,
     });

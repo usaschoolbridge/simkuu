@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Bitcoin, Loader2, ExternalLink, ShieldCheck,
-  Clock, Zap, Globe, ChevronRight, AlertCircle,
+  Clock, Zap, Globe, AlertCircle, Lock,
 } from "lucide-react";
 
 interface CryptoPaymentProps {
@@ -27,15 +27,41 @@ const SUPPORTED_CRYPTOS = [
   { symbol: "BNB", name: "BNB", icon: "B", color: "from-yellow-500 to-orange-400" },
 ];
 
+/** Real coin logo from the public cryptocurrency-icons CDN, with a graceful
+ *  gradient-badge fallback if the image fails to load. */
+function CoinLogo({ symbol, icon, color }: { symbol: string; icon: string; color: string }) {
+  const [failed, setFailed] = useState(false);
+  const src = `https://cdn.jsdelivr.net/npm/cryptocurrency-icons@0.18.1/svg/color/${symbol.toLowerCase()}.svg`;
+  if (failed) {
+    return (
+      <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${color} flex items-center justify-center text-white text-sm font-black`}>
+        {icon}
+      </div>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={symbol}
+      width={32}
+      height={32}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="w-8 h-8 rounded-lg"
+    />
+  );
+}
+
 export function CryptoPayment({
   planId,
   planName,
   usdAmount,
   customerEmail,
   customerName,
-  onSuccess,
 }: CryptoPaymentProps) {
   const [loading, setLoading] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   const [error, setError] = useState("");
 
   const handlePay = async () => {
@@ -50,7 +76,6 @@ export function CryptoPayment({
           planId,
           email: customerEmail,
           name: customerName,
-          currency: "USD",
         }),
       });
 
@@ -60,21 +85,73 @@ export function CryptoPayment({
         error?: string;
       };
 
-      if (!res.ok || !data.success) {
+      if (!res.ok || !data.success || !data.paymentUrl) {
         setError(data.error ?? "Failed to create payment. Please try again.");
+        setLoading(false);
         return;
       }
 
-      if (data.paymentUrl) {
-        // Redirect to Cryptomus hosted payment page
-        window.location.href = data.paymentUrl;
-      }
+      // Show the visual redirect state, then send the buyer to the
+      // NOWPayments hosted checkout page.
+      setRedirecting(true);
+      setTimeout(() => { window.location.href = data.paymentUrl!; }, 900);
     } catch {
       setError("Network error. Please check your connection and try again.");
-    } finally {
       setLoading(false);
     }
   };
+
+  // ── Visual redirect / processing screen ──────────────────────────────
+  if (redirecting) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.97 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="flex flex-col items-center text-center py-8 px-4"
+      >
+        {/* Animated coin cluster */}
+        <div className="relative w-28 h-28 mb-6">
+          <motion.div
+            className="absolute inset-0 rounded-full border-2 border-dashed border-amber-300"
+            animate={{ rotate: 360 }}
+            transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+          />
+          {SUPPORTED_CRYPTOS.slice(0, 6).map((c, i) => {
+            const angle = (i / 6) * Math.PI * 2;
+            const r = 46;
+            return (
+              <motion.div
+                key={c.symbol}
+                className="absolute top-1/2 left-1/2"
+                style={{ x: Math.cos(angle) * r - 14, y: Math.sin(angle) * r - 14 }}
+                animate={{ y: [Math.sin(angle) * r - 14, Math.sin(angle) * r - 20, Math.sin(angle) * r - 14] }}
+                transition={{ duration: 2, repeat: Infinity, delay: i * 0.15 }}
+              >
+                <CoinLogo symbol={c.symbol} icon={c.icon} color={c.color} />
+              </motion.div>
+            );
+          })}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center shadow-lg">
+              <Bitcoin className="w-6 h-6 text-white" />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 text-black font-semibold text-sm mb-1">
+          <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
+          Opening secure crypto checkout…
+        </div>
+        <p className="text-xs text-black/50 max-w-[260px]">
+          Redirecting you to the NOWPayments page for <span className="font-semibold text-black">{planName}</span> · ${usdAmount.toFixed(2)}.
+          Don&apos;t close this window.
+        </p>
+        <div className="mt-4 flex items-center gap-1.5 text-[10px] text-black/30">
+          <Lock className="w-3 h-3" /> 256-bit encrypted · Powered by NOWPayments
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -108,9 +185,7 @@ export function CryptoPayment({
           {SUPPORTED_CRYPTOS.map((coin) => (
             <div key={coin.symbol}
               className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-black/[0.06] bg-white hover:border-black/20 transition-colors cursor-default">
-              <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${coin.color} flex items-center justify-center text-white text-sm font-black`}>
-                {coin.icon}
-              </div>
+              <CoinLogo symbol={coin.symbol} icon={coin.icon} color={coin.color} />
               <span className="text-[10px] font-bold text-black/60">{coin.symbol}</span>
             </div>
           ))}
@@ -151,16 +226,19 @@ export function CryptoPayment({
       </div>
 
       {/* Error */}
-      {error && (
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl"
-        >
-          <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-red-600">{error}</p>
-        </motion.div>
-      )}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl"
+          >
+            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-red-600">{error}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Pay button */}
       <motion.button
