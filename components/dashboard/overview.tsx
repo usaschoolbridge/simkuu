@@ -118,7 +118,7 @@ export function DashboardOverview() {
                   <Wifi className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <div className="font-semibold text-sm text-black">{data.stats.activeEsims} active eSIM{data.stats.activeEsims !== 1 ? "s" : ""}</div>
+                  <div className="font-semibold text-sm text-black">{data?.stats.activeEsims} active eSIM{(data?.stats.activeEsims ?? 0) !== 1 ? "s" : ""}</div>
                   <div className="text-xs text-black/40">Click to view details, QR codes, and data usage</div>
                 </div>
                 <ArrowRight className="w-4 h-4 text-black/20 ml-auto" />

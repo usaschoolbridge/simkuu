@@ -30,13 +30,14 @@ export async function GET() {
 
     if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
+    type OrderItem = (typeof orders)[number];
     const totalSpent = orders
-      .filter(o => o.status !== "CANCELLED" && o.status !== "REFUNDED")
-      .reduce((sum, o) => sum + Number(o.amount), 0);
+      .filter((o: OrderItem) => o.status !== "CANCELLED" && o.status !== "REFUNDED")
+      .reduce((sum: number, o: OrderItem) => sum + Number(o.amount), 0);
 
     const customerId = `SIM${String(user.customerNo).padStart(6, "0")}`;
 
-    const recentOrders = orders.map(o => ({
+    const recentOrders = orders.map((o: OrderItem) => ({
       id: o.id,
       orderNo: o.orderNo,
       displayId: `ORD-${new Date(o.createdAt).getFullYear()}-${String(o.orderNo).padStart(6, "0")}`,

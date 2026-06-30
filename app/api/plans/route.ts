@@ -15,7 +15,7 @@ export async function GET() {
     });
 
     // Attach inventoryCount to each plan
-    const plansWithStock = plans.map(p => ({
+    const plansWithStock = plans.map((p: (typeof plans)[number]) => ({
       ...p,
       inventoryCount: p._count.inventory,
       inStock: p._count.inventory > 0,

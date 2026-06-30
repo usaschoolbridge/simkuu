@@ -25,7 +25,7 @@ export async function GET() {
     });
 
     return NextResponse.json(
-      invoices.map(inv => ({
+      invoices.map((inv: (typeof invoices)[number]) => ({
         id: inv.id,
         invoiceNo: inv.invoiceNo,
         orderNo: inv.order.orderNo,

@@ -20,7 +20,7 @@ export async function GET() {
     });
 
     return NextResponse.json(
-      orders.map(o => ({
+      orders.map((o: (typeof orders)[number]) => ({
         id: o.id,
         displayId: `ORD-${new Date(o.createdAt).getFullYear()}-${String(o.orderNo).padStart(6, "0")}`,
         invoiceNo: o.invoice?.invoiceNo ?? null,

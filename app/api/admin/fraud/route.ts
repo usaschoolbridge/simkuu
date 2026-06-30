@@ -37,13 +37,13 @@ function riskScore(flags: string[]): number {
   return Math.min(score, 99);
 }
 
-function checkAdmin() {
-  const jar = cookies();
+async function checkAdmin() {
+  const jar = await cookies();
   return jar.get("simkuu_admin_session")?.value === "authenticated";
 }
 
 export async function GET(_req: NextRequest) {
-  if (!checkAdmin()) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await checkAdmin())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
 
   try {
@@ -93,10 +93,10 @@ export async function GET(_req: NextRequest) {
       if (isDisposable(user.email)) reasons.push("Disposable email domain detected");
       if (isTestEmail(user.email)) reasons.push("Suspicious test email pattern");
 
-      const refundedOrders = user.orders.filter(o => o.status === "REFUNDED");
+      const refundedOrders = user.orders.filter((o: { status: string }) => o.status === "REFUNDED");
       if (refundedOrders.length > 0) reasons.push(`${refundedOrders.length} REFUNDED order(s) in last 30 days`);
 
-      const cancelledOrders = user.orders.filter(o => o.status === "CANCELLED");
+      const cancelledOrders = user.orders.filter((o: { status: string }) => o.status === "CANCELLED");
       if (cancelledOrders.length >= 2) reasons.push(`${cancelledOrders.length} CANCELLED orders in last 30 days`);
 
       // Velocity check — multiple orders in 24h window

@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
           ...(data.compat ? { compat: data.compat } : {}),
           ...(data.country ? { country: data.country } : {}),
           ...(data.phone ? { phone: data.phone } : {}),
-        } || undefined,
+        },
       },
     });
 
