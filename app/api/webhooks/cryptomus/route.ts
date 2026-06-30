@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhookSign, PAID_STATUSES, FAILED_STATUSES } from "@/lib/payments/cryptomus";
-import { db } from "@/lib/db";
+import { fulfillAndNotify } from "@/lib/fulfillment";
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,20 +39,8 @@ export async function POST(req: NextRequest) {
 
     if (PAID_STATUSES.includes(status)) {
       console.log(`[cryptomus-webhook] PAID — orderId: ${orderId}, amount: ${paymentAmount} ${payerCurrency}, txid: ${txid}`);
-
-      // TODO: Provision eSIM and update order in DB
-      // Example:
-      // await db.order.update({
-      //   where: { reference: orderId },
-      //   data: {
-      //     status: "PAID",
-      //     paymentMethod: "CRYPTO",
-      //     paymentReference: uuid,
-      //     transactionId: txid,
-      //     paidAt: new Date(),
-      //   },
-      // });
-      // await provisionESIM(orderId);
+      const r = await fulfillAndNotify(orderId, uuid);
+      if (!r.ok) console.error("[cryptomus-webhook] fulfillment failed:", r.reason, r.message);
 
     } else if (FAILED_STATUSES.includes(status)) {
       console.log(`[cryptomus-webhook] FAILED — orderId: ${orderId}, status: ${status}`);

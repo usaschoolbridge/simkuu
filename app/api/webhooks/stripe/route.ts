@@ -1,61 +1,66 @@
+export const runtime = "nodejs";
+
 import { NextRequest, NextResponse } from "next/server";
+import Stripe from "stripe";
+import { fulfillAndNotify } from "@/lib/fulfillment";
 
 /**
  * POST /api/webhooks/stripe
- * Handles Stripe webhook events.
- *
  * Setup: stripe listen --forward-to localhost:3000/api/webhooks/stripe
  *
- * Uncomment when stripe is installed:
- * import Stripe from "stripe";
- * const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-12-18" });
+ * The order id must be passed as session.metadata.orderId (or
+ * payment_intent metadata) when the Checkout Session is created.
  */
+
+function getStripe(): Stripe | null {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return null;
+  // apiVersion left to SDK default; cast keeps us version-agnostic.
+  return new Stripe(key);
+}
 
 export async function POST(req: NextRequest) {
   const body = await req.text();
   const sig = req.headers.get("stripe-signature") ?? "";
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const stripe = getStripe();
 
-  if (!webhookSecret) {
-    return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 });
+  if (!webhookSecret || !stripe) {
+    return NextResponse.json({ error: "Stripe not configured" }, { status: 500 });
   }
 
-  // --- Signature verification (uncomment when stripe is installed) ---
-  // let event: Stripe.Event;
-  // try {
-  //   event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
-  // } catch (err) {
-  //   console.error("[Stripe webhook] Invalid signature:", err);
-  //   return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
-  // }
+  let event: Stripe.Event;
+  try {
+    event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
+  } catch (err) {
+    console.error("[stripe-webhook] Invalid signature:", err);
+    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+  }
 
-  // --- Event handling ---
-  // switch (event.type) {
-  //   case "checkout.session.completed": {
-  //     const session = event.data.object as Stripe.Checkout.Session;
-  //     await handleCheckoutComplete(session);
-  //     break;
-  //   }
-  //   case "payment_intent.payment_failed": {
-  //     const intent = event.data.object as Stripe.PaymentIntent;
-  //     await handlePaymentFailed(intent);
-  //     break;
-  //   }
-  //   case "charge.refunded": {
-  //     const charge = event.data.object as Stripe.Charge;
-  //     await handleRefund(charge);
-  //     break;
-  //   }
-  // }
+  try {
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const orderId = session.metadata?.orderId;
+        if (orderId) {
+          const r = await fulfillAndNotify(orderId, session.payment_intent as string);
+          if (!r.ok) console.error("[stripe-webhook] fulfillment failed:", r.reason, r.message);
+        } else {
+          console.error("[stripe-webhook] checkout.session.completed missing metadata.orderId");
+        }
+        break;
+      }
+      case "payment_intent.payment_failed":
+        console.log("[stripe-webhook] payment failed:", (event.data.object as Stripe.PaymentIntent).id);
+        break;
+      case "charge.refunded":
+        console.log("[stripe-webhook] refund:", (event.data.object as Stripe.Charge).id);
+        break;
+    }
+  } catch (e) {
+    console.error("[stripe-webhook] handler error", e);
+    return NextResponse.json({ error: "Handler error" }, { status: 500 });
+  }
 
   return NextResponse.json({ received: true });
 }
-
-// async function handleCheckoutComplete(session: Stripe.Checkout.Session) {
-//   const { planId, planName } = session.metadata ?? {};
-//   const customerId = session.customer as string;
-//   // 1. Create Order in DB
-//   // 2. Generate eSIM QR code
-//   // 3. Send confirmation email via Resend
-//   // 4. Update customer's plan in DB
-// }

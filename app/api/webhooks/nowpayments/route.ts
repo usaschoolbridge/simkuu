@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhookSignature, PAID_STATUSES, FAILED_STATUSES } from "@/lib/payments/nowpayments";
-import { db } from "@/lib/db";
+import { fulfillAndNotify } from "@/lib/fulfillment";
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,17 +32,8 @@ export async function POST(req: NextRequest) {
 
     if (PAID_STATUSES.includes(status)) {
       console.log(`[nowpayments-webhook] PAID — orderId: ${orderId}, paid: ${actuallyPaid} ${payCurrency}`);
-
-      // TODO: Provision eSIM and update order in DB
-      // await db.order.update({
-      //   where: { reference: orderId },
-      //   data: {
-      //     status: "PAID",
-      //     paymentReference: String(paymentId),
-      //     paidAt: new Date(),
-      //   },
-      // });
-      // await provisionESIM(orderId);
+      const r = await fulfillAndNotify(orderId, String(paymentId));
+      if (!r.ok) console.error("[nowpayments-webhook] fulfillment failed:", r.reason, r.message);
 
     } else if (FAILED_STATUSES.includes(status)) {
       console.log(`[nowpayments-webhook] FAILED — orderId: ${orderId}, status: ${status}`);

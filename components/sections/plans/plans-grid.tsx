@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import Link from "next/link";
 import { Check, Zap, SlidersHorizontal, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Reveal } from "@/components/motion/reveal";
 import { cn } from "@/lib/utils";
 import { useCurrency } from "@/contexts/currency";
+import { CompatibilityModal } from "@/components/compat/compatibility-modal";
 
 type CarrierFilter = "all" | string;
 type DataFilter = "all" | "small" | "medium" | "unlimited";
@@ -57,6 +57,7 @@ function matchesDataFilter(data: string, filter: DataFilter): boolean {
 
 function PlanCard({ plan, format }: { plan: DbPlan; format: (p: number) => string }) {
   const color = getCarrierColor(plan.carrier);
+  const [compatOpen, setCompatOpen] = useState(false);
   const features = [
     `${plan.carrier?.name} network`,
     plan.fiveG ? "5G enabled" : "4G LTE",
@@ -131,14 +132,15 @@ function PlanCard({ plan, format }: { plan: DbPlan; format: (p: number) => strin
           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-50 text-green-600">Unlimited Calls</span>
         </div>
 
-        <Link href={`/checkout?planId=${plan.id}`}>
-          <Button variant="outline" size="sm" className="w-full hover:text-white transition-all duration-300"
-            onMouseEnter={(e) => { const b = e.currentTarget; b.style.background = color; b.style.borderColor = color; b.style.color = "white"; }}
-            onMouseLeave={(e) => { const b = e.currentTarget; b.style.background = ""; b.style.borderColor = ""; b.style.color = ""; }}>
-            Get This Plan
-          </Button>
-        </Link>
+        <Button variant="outline" size="sm" className="w-full hover:text-white transition-all duration-300"
+          onClick={() => setCompatOpen(true)}
+          onMouseEnter={(e) => { const b = e.currentTarget; b.style.background = color; b.style.borderColor = color; b.style.color = "white"; }}
+          onMouseLeave={(e) => { const b = e.currentTarget; b.style.background = ""; b.style.borderColor = ""; b.style.color = ""; }}>
+          Get This Plan
+        </Button>
       </div>
+
+      <CompatibilityModal open={compatOpen} onClose={() => setCompatOpen(false)} planId={plan.id} />
     </motion.div>
   );
 }

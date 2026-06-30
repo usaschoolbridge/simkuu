@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, ShoppingBag, Users, Package, Tag, LifeBuoy,
   BarChart2, ShieldAlert, Menu, X, ChevronRight, Bell, Settings,
-  Wifi, LogOut, Zap, Globe, ChevronDown
+  Wifi, LogOut, Zap, Globe, ChevronDown, Boxes
 } from "lucide-react";
 
 type NavItem = { label: string; href: string; icon: React.ComponentType<{ className?: string }>; badge?: string; badgeColor?: string };
@@ -28,6 +28,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Orders", href: "/admin/orders", icon: ShoppingBag, badge: "12" },
       { label: "Customers", href: "/admin/customers", icon: Users },
       { label: "Plans & Pricing", href: "/admin/plans", icon: Package },
+      { label: "eSIM Inventory", href: "/admin/inventory", icon: Boxes },
       { label: "Coupons", href: "/admin/coupons", icon: Tag },
     ],
   },

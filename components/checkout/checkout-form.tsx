@@ -8,7 +8,7 @@ import { z } from "zod";
 import { useRouter } from "next/navigation";
 import {
   CreditCard, Loader2, Mail, User, Lock, Shield,
-  ChevronRight, Smartphone, Bitcoin
+  ChevronRight, Smartphone, Bitcoin,
 } from "lucide-react";
 import { CryptoPayment } from "./crypto-payment";
 
@@ -86,36 +86,60 @@ export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
     resolver: zodResolver(contactSchema),
   });
 
+  const [payError, setPayError] = useState<string | null>(null);
+  const [paying, setPaying] = useState(false);
+
   const onContactSubmit = (data: ContactValues) => {
     setContactData(data);
     setStep("payment");
   };
 
-  const handleCardPay = async () => {
-    const res = await fetch("/api/checkout/stripe", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ planId: plan.id }),
-    });
-    const data = await res.json() as { url: string };
-    if (data.url) router.push(data.url);
+  /** Create the order, then either redirect to the live provider or, in demo
+   *  mode, simulate capture and go to the success page with the real orderId. */
+  const startPayment = async (
+    provider: "STRIPE" | "PAYPAL" | "APPLE_PAY" | "GOOGLE_PAY",
+    providerRoute?: { url: string; key: "url" | "approvalUrl" },
+  ) => {
+    if (!contactData) return;
+    setPaying(true);
+    setPayError(null);
+    try {
+      const orderRes = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planId: plan.id, name: contactData.name, email: contactData.email, paymentProvider: provider }),
+      });
+      const orderJson = await orderRes.json();
+      if (!orderRes.ok) { setPayError(orderJson.error ?? "Could not create your order."); setPaying(false); return; }
+      const orderId: string = orderJson.orderId;
+
+      // Try live provider first (returns a redirect URL once keys are configured).
+      if (providerRoute) {
+        const res = await fetch(providerRoute.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ planId: plan.id, orderId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        const redirect = data[providerRoute.key];
+        if (res.ok && redirect && !String(redirect).includes("demo_session")) {
+          router.push(redirect);
+          return;
+        }
+      }
+
+      // Demo fallback: simulate capture (no-op in prod unless flag enabled).
+      await fetch(`/api/orders/${orderId}/demo-pay`, { method: "POST" }).catch(() => {});
+      router.push(`/checkout/success?orderId=${encodeURIComponent(orderId)}`);
+    } catch {
+      setPayError("Payment could not be started. Please try again.");
+      setPaying(false);
+    }
   };
 
-  const handlePayPal = async () => {
-    const res = await fetch("/api/checkout/paypal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ planId: plan.id }),
-    });
-    const data = await res.json() as { approvalUrl: string };
-    if (data.approvalUrl) router.push(data.approvalUrl);
-  };
-
-  const handleAppleGooglePay = async () => {
-    // Apple Pay / Google Pay go through Stripe Payment Request Button
-    // For now redirect to Stripe checkout which handles both
-    await handleCardPay();
-  };
+  const handleCardPay = () => startPayment("STRIPE", { url: "/api/checkout/stripe", key: "url" });
+  const handlePayPal = () => startPayment("PAYPAL", { url: "/api/checkout/paypal", key: "approvalUrl" });
+  const handleAppleGooglePay = () => startPayment("APPLE_PAY", { url: "/api/checkout/stripe", key: "url" });
 
   const total = plan.price - discount;
 
@@ -242,14 +266,18 @@ export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
                       </div>
                     )}
 
-                    <motion.button whileTap={{ scale: 0.98 }}
+                    <motion.button whileTap={{ scale: 0.98 }} disabled={paying}
                       onClick={paymentMethod === "card" ? handleCardPay : paymentMethod === "paypal" ? handlePayPal : handleAppleGooglePay}
-                      className="w-full flex items-center justify-center gap-2 py-4 rounded-xl bg-black text-white font-bold text-base hover:bg-black/80 transition-all shadow-lg shadow-black/15">
-                      {paymentMethod === "card" && <><Shield className="w-4 h-4" /> Pay ${(total / 100).toFixed(2)} securely</>}
-                      {paymentMethod === "paypal" && <>Pay with PayPal · ${(total / 100).toFixed(2)}</>}
-                      {paymentMethod === "apple_pay" && <><Smartphone className="w-4 h-4" /> Pay with Apple Pay</>}
-                      {paymentMethod === "google_pay" && <>Pay with Google Pay · ${(total / 100).toFixed(2)}</>}
+                      className="w-full flex items-center justify-center gap-2 py-4 rounded-xl bg-black text-white font-bold text-base hover:bg-black/80 transition-all shadow-lg shadow-black/15 disabled:opacity-60">
+                      {paying ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing…</> : <>
+                        {paymentMethod === "card" && <><Shield className="w-4 h-4" /> Pay ${(total / 100).toFixed(2)} securely</>}
+                        {paymentMethod === "paypal" && <>Pay with PayPal · ${(total / 100).toFixed(2)}</>}
+                        {paymentMethod === "apple_pay" && <><Smartphone className="w-4 h-4" /> Pay with Apple Pay</>}
+                        {paymentMethod === "google_pay" && <>Pay with Google Pay · ${(total / 100).toFixed(2)}</>}
+                      </>}
                     </motion.button>
+
+                    {payError && <p className="text-center text-xs text-red-500 mt-2">{payError}</p>}
 
                     <p className="text-center text-xs text-black/30 mt-3 flex items-center justify-center gap-1">
                       <Shield className="w-3 h-3" /> 256-bit SSL encryption · PCI DSS compliant

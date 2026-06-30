@@ -53,6 +53,13 @@ enum PaymentProvider {
   CRYPTO
   APPLE_PAY
   GOOGLE_PAY
+  RAZORPAY
+}
+
+enum InventoryStatus {
+  AVAILABLE
+  RESERVED
+  SOLD
 }
 
 enum ActivationStatus {
@@ -200,6 +207,7 @@ model Plan {
 
   orders         Order[]
   esims          ESim[]
+  inventory      InventoryItem[]
 
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
@@ -233,6 +241,32 @@ model ESim {
   @@index([iccid])
 }
 
+model InventoryItem {
+  id                  String          @id @default(cuid())
+  country             String          @default("US")
+  carrier             CarrierId
+  planId              String?
+  plan                Plan?           @relation(fields: [planId], references: [id])
+  iccid               String          @unique
+  lpaActivationString String          @db.Text
+  qrCode              String?         @db.Text
+  status              InventoryStatus @default(AVAILABLE)
+  expiresAt           DateTime?
+  orderId             String?         @unique
+  order               Order?          @relation(fields: [orderId], references: [id])
+  reservedAt          DateTime?
+  soldAt              DateTime?
+  batchId             String?
+
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@index([status])
+  @@index([carrier, status])
+  @@index([planId, status])
+  @@index([batchId])
+}
+
 model Order {
   id              String          @id @default(cuid())
   userId          String
@@ -252,6 +286,7 @@ model Order {
 
   esim            ESim?
   invoice         Invoice?
+  inventoryItem   InventoryItem?
 
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt

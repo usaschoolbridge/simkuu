@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { SuccessPage } from "@/components/checkout/success-page";
 
 export const metadata: Metadata = {
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function CheckoutSuccess() {
-  return <SuccessPage />;
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-black/40">Loading…</div>}>
+      <SuccessPage />
+    </Suspense>
+  );
 }

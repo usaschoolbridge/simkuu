@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { fulfillAndNotify } from "@/lib/fulfillment";
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,7 +29,12 @@ export async function POST(req: NextRequest) {
       case "payment.captured": {
         const payment = event.payload.payment.entity;
         console.log("[razorpay-webhook] Payment captured:", payment.id, payment.amount, payment.currency);
-        // TODO: Update order status in DB, provision eSIM
+        const orderId = payment.notes?.orderId as string | undefined;
+        if (orderId) {
+          const r = await fulfillAndNotify(orderId, payment.id);
+          if (!r.ok) console.error("[razorpay-webhook] fulfillment failed:", r.reason, r.message);
+        }
+        else console.error("[razorpay-webhook] payment.captured missing notes.orderId");
         break;
       }
       case "payment.failed": {

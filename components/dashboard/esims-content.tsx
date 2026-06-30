@@ -1,56 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Wifi, QrCode, Copy, Check, ChevronDown, ChevronUp, MoreHorizontal, RefreshCw, Zap, AlertCircle } from "lucide-react";
+import { Wifi, QrCode, Copy, Check, ChevronDown, ChevronUp, MoreHorizontal, RefreshCw, Zap, AlertCircle, Loader2, Download } from "lucide-react";
 
-const ESIMS = [
-  {
-    id: "esim-001", carrier: "T-Mobile", plan: "Unlimited", signal: "5G",
-    iccid: "8901260123456789012", eid: "89049032004008882600000123456789",
-    dataUsed: 18.4, dataTotal: null, status: "active",
-    activatedAt: "Jun 20, 2026", expiresAt: "Jul 20, 2026",
-    color: "from-pink-500 to-red-500",
-    apn: "fast.t-mobile.com",
-    smDpAddress: "consumer.iot-safe.com",
-    activationCode: "LPA:1$consumer.iot-safe.com$ABCD-1234-EFGH-5678",
-  },
-  {
-    id: "esim-002", carrier: "Verizon", plan: "50GB", signal: "5G",
-    iccid: "8901260987654321098", eid: "89049032004008882600000987654321",
-    dataUsed: 22.1, dataTotal: 50, status: "active",
-    activatedAt: "Jun 10, 2026", expiresAt: "Jul 10, 2026",
-    color: "from-red-600 to-red-800",
-    apn: "vzwinternet",
-    smDpAddress: "smdp.vzw.com",
-    activationCode: "LPA:1$smdp.vzw.com$WXYZ-9012-IJKL-3456",
-  },
-  {
-    id: "esim-003", carrier: "Mint Mobile", plan: "5GB", signal: "4G LTE",
-    iccid: "8901261122334455667", eid: "89049032004008882600001122334455",
-    dataUsed: 5, dataTotal: 5, status: "expired",
-    activatedAt: "May 1, 2026", expiresAt: "Jun 1, 2026",
-    color: "from-purple-500 to-purple-700",
-    apn: "wholesale",
-    smDpAddress: "smdp.mint.com",
-    activationCode: "LPA:1$smdp.mint.com$MNOP-5678-QRST-9012",
-  },
-];
+type Esim = {
+  id: string; carrier: string; plan: string; signal: string;
+  iccid: string; activationCode: string; qrCode: string;
+  status: "active" | "expired" | "pending";
+  dataUsed: number; dataTotal: number | null;
+  activatedAt: string; expiresAt: string;
+};
 
-function QrCodeBox({ code }: { code: string }) {
-  // Render a fake QR-like grid
-  return (
-    <div className="w-32 h-32 bg-white border border-black/10 rounded-xl p-2 grid grid-cols-8 gap-0.5">
-      {Array.from({ length: 64 }, (_, i) => {
-        const pattern = (Math.sin(i * 2.3 + 7) * Math.cos(i * 1.7 + 3) > 0.1) ||
-          [0,1,2,3,4,5,6,7,8,15,16,23,24,31,32,33,34,35,36,37,38,39,48,55,56,57,58,59,60,61,62,63].includes(i);
-        return (
-          <div key={i} className={`rounded-[1px] ${pattern ? "bg-black" : "bg-transparent"}`} />
-        );
-      })}
-    </div>
-  );
-}
+const CARRIER_COLOR: Record<string, string> = {
+  "T-Mobile": "from-pink-500 to-red-500",
+  Verizon: "from-red-600 to-red-800",
+  "AT&T": "from-blue-500 to-cyan-500",
+};
+const colorFor = (carrier: string) => CARRIER_COLOR[carrier] ?? "from-purple-500 to-violet-600";
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -66,11 +33,17 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function EsimCard({ esim }: { esim: typeof ESIMS[0] }) {
+function EsimCard({ esim }: { esim: Esim }) {
   const [expanded, setExpanded] = useState(false);
+  const color = colorFor(esim.carrier);
   const pct = esim.dataTotal ? (esim.dataUsed / esim.dataTotal) * 100 : 36;
   const isExpired = esim.status === "expired";
   const isLow = esim.dataTotal && pct > 80 && !isExpired;
+  const downloadQr = () => {
+    if (!esim.qrCode) return;
+    const a = document.createElement("a");
+    a.href = esim.qrCode; a.download = `simkuu-esim-${esim.iccid}.png`; a.click();
+  };
 
   return (
     <motion.div
@@ -85,7 +58,7 @@ function EsimCard({ esim }: { esim: typeof ESIMS[0] }) {
       <div className="p-5">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${esim.color} flex items-center justify-center shadow-md`}>
+            <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${color} flex items-center justify-center shadow-md`}>
               <Wifi className="w-6 h-6 text-white" />
             </div>
             <div>
@@ -122,7 +95,7 @@ function EsimCard({ esim }: { esim: typeof ESIMS[0] }) {
           </div>
           <div className="h-2 bg-black/5 rounded-full overflow-hidden">
             <motion.div
-              className={`h-full rounded-full bg-gradient-to-r ${esim.color}`}
+              className={`h-full rounded-full bg-gradient-to-r ${color}`}
               initial={{ width: 0 }}
               animate={{ width: `${Math.min(pct, 100)}%` }}
               transition={{ duration: 0.8, ease: "easeOut" }}
@@ -180,7 +153,15 @@ function EsimCard({ esim }: { esim: typeof ESIMS[0] }) {
               <div className="flex flex-col sm:flex-row gap-6">
                 {/* QR Code */}
                 <div className="flex flex-col items-center gap-3">
-                  <QrCodeBox code={esim.activationCode} />
+                  {esim.qrCode ? (
+                    <img src={esim.qrCode} alt="eSIM QR code" width={128} height={128}
+                      className="w-32 h-32 bg-white border border-black/10 rounded-xl p-1" />
+                  ) : (
+                    <div className="w-32 h-32 rounded-xl border border-black/10 flex items-center justify-center text-black/20 text-xs">No QR</div>
+                  )}
+                  <button onClick={downloadQr} className="flex items-center gap-1.5 text-xs text-black/50 hover:text-black">
+                    <Download className="w-3.5 h-3.5" /> Save QR
+                  </button>
                   <p className="text-xs text-black/40 text-center max-w-[140px]">
                     Scan in Settings → Mobile Data → Add eSIM
                   </p>
@@ -190,9 +171,7 @@ function EsimCard({ esim }: { esim: typeof ESIMS[0] }) {
                 <div className="flex-1 space-y-3">
                   {[
                     { label: "ICCID", value: esim.iccid },
-                    { label: "SM-DP+ Address", value: esim.smDpAddress },
-                    { label: "Activation Code", value: esim.activationCode.slice(0, 28) + "…" },
-                    { label: "APN", value: esim.apn },
+                    { label: "Activation Code", value: esim.activationCode },
                   ].map(({ label, value }) => (
                     <div key={label}>
                       <div className="text-xs text-black/30 mb-0.5">{label}</div>
@@ -200,7 +179,7 @@ function EsimCard({ esim }: { esim: typeof ESIMS[0] }) {
                         <code className="text-xs text-black font-mono bg-black/[0.03] px-2 py-1 rounded-lg border border-black/5 flex-1 truncate">
                           {value}
                         </code>
-                        <CopyButton text={label === "Activation Code" ? esim.activationCode : value} />
+                        <CopyButton text={value} />
                       </div>
                     </div>
                   ))}
@@ -216,13 +195,43 @@ function EsimCard({ esim }: { esim: typeof ESIMS[0] }) {
 
 export function EsimsContent() {
   const [filter, setFilter] = useState<"all" | "active" | "expired">("all");
-  const filtered = ESIMS.filter((e) => filter === "all" || e.status === filter);
+  const [esims, setEsims] = useState<Esim[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/dashboard/esims", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: Esim[]) => setEsims(Array.isArray(data) ? data : []))
+      .catch(() => setEsims([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = esims.filter((e) => filter === "all" || e.status === filter);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-7 h-7 text-black/20 animate-spin" />
+      </div>
+    );
+  }
+
+  if (esims.length === 0) {
+    return (
+      <div className="text-center py-20">
+        <div className="text-4xl mb-3">📭</div>
+        <div className="font-display text-xl font-bold text-black mb-2">No eSIMs yet</div>
+        <p className="text-black/40 mb-6">Once you buy a plan, your eSIM and QR code appear here.</p>
+        <a href="/plans" className="inline-flex px-5 py-2.5 rounded-xl bg-black text-white text-sm font-semibold hover:bg-black/80">Browse plans</a>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-black/40 text-sm">{ESIMS.filter(e => e.status === "active").length} active · {ESIMS.filter(e => e.status === "expired").length} expired</p>
+          <p className="text-black/40 text-sm">{esims.filter(e => e.status === "active").length} active · {esims.filter(e => e.status === "expired").length} expired</p>
         </div>
         <div className="flex gap-1 bg-black/5 p-1 rounded-xl">
           {(["all", "active", "expired"] as const).map((f) => (
