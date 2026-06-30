@@ -94,11 +94,12 @@ export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
     setStep("payment");
   };
 
-  /** Create the order, then either redirect to the live provider or, in demo
-   *  mode, simulate capture and go to the success page with the real orderId. */
+  /** Create the order, then redirect to the live payment provider. If the
+   *  provider isn't configured the route returns a clear message which we show
+   *  inline — we never fake a success. */
   const startPayment = async (
     provider: "STRIPE" | "PAYPAL" | "APPLE_PAY" | "GOOGLE_PAY",
-    providerRoute?: { url: string; key: "url" | "approvalUrl" },
+    providerRoute: { url: string; key: "url" | "approvalUrl" },
   ) => {
     if (!contactData) return;
     setPaying(true);
@@ -113,24 +114,19 @@ export function CheckoutForm({ plan, discount = 0 }: CheckoutFormProps) {
       if (!orderRes.ok) { setPayError(orderJson.error ?? "Could not create your order."); setPaying(false); return; }
       const orderId: string = orderJson.orderId;
 
-      // Try live provider first (returns a redirect URL once keys are configured).
-      if (providerRoute) {
-        const res = await fetch(providerRoute.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ planId: plan.id, orderId }),
-        });
-        const data = await res.json().catch(() => ({}));
-        const redirect = data[providerRoute.key];
-        if (res.ok && redirect && !String(redirect).includes("demo_session")) {
-          router.push(redirect);
-          return;
-        }
+      const res = await fetch(providerRoute.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const redirect = data[providerRoute.key];
+      if (res.ok && redirect) {
+        window.location.href = redirect;
+        return;
       }
-
-      // Demo fallback: simulate capture (no-op in prod unless flag enabled).
-      await fetch(`/api/orders/${orderId}/demo-pay`, { method: "POST" }).catch(() => {});
-      router.push(`/checkout/success?orderId=${encodeURIComponent(orderId)}`);
+      setPayError(data.error ?? "Payment could not be started. Please try again.");
+      setPaying(false);
     } catch {
       setPayError("Payment could not be started. Please try again.");
       setPaying(false);
