@@ -83,6 +83,11 @@ export function WalletContent() {
     }
   }, []);
 
+  // Auto-clean expired PENDING transactions on mount (older than 2h)
+  useEffect(() => {
+    fetch("/api/dashboard/wallet/cleanup", { method: "POST" }).catch(() => {});
+  }, []);
+
   useEffect(() => { load(); }, [load]);
 
   // Generate QR code whenever payment changes

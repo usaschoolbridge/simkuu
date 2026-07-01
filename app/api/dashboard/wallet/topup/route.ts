@@ -13,51 +13,81 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
+
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   if (!NOWPAYMENTS_API_KEY) {
-    return NextResponse.json({ error: "Crypto payments not configured" }, { status: 503 });
+    return NextResponse.json({ error: "Crypto payments not configured on this server." }, { status: 503 });
   }
 
-  const parsed = schema.safeParse(await req.json().catch(() => null));
+  const body = await req.json().catch(() => null);
+  const parsed = schema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
   }
   const { amount, payCurrency } = parsed.data;
 
   try {
-    const user = await db.user.findUnique({ where: { id: session.userId }, select: { id: true, walletBalance: true } });
+    const user = await db.user.findUnique({
+      where: { id: session.userId },
+      select: { id: true, walletBalance: true },
+    });
     if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-    // Create pending wallet transaction — id used as order_id for NowPayments
+    const meta = coinMeta(payCurrency);
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://simkuu.com";
+
+    // Generate a temporary order reference — NOT saved to DB yet
+    const tempOrderRef = `wallet_${session.userId}_${Date.now()}`;
+
+    // Call NOWPayments FIRST — only create DB record if this succeeds
+    let payment;
+    try {
+      payment = await createPayment({
+        amount,
+        orderId: tempOrderRef,
+        description: `Simkuu Wallet Top-Up — $${amount.toFixed(2)}`,
+        payCurrency,
+        callbackUrl: `${baseUrl}/api/webhooks/nowpayments`,
+      });
+    } catch (npErr) {
+      const errMsg = npErr instanceof Error ? npErr.message : String(npErr);
+      console.error("[wallet/topup] NOWPayments error:", errMsg);
+
+      // Return a user-friendly message based on the error
+      if (errMsg.includes("422") || errMsg.includes("currency")) {
+        return NextResponse.json({
+          error: `${meta.name} is temporarily unavailable. Please try a different coin.`,
+        }, { status: 422 });
+      }
+      if (errMsg.includes("401") || errMsg.includes("403")) {
+        return NextResponse.json({
+          error: "Payment gateway authentication failed. Please contact support.",
+        }, { status: 502 });
+      }
+      return NextResponse.json({
+        error: "Payment gateway is temporarily unavailable. Please try again in a moment.",
+      }, { status: 502 });
+    }
+
+    // NOWPayments succeeded — NOW create the DB record
     const tx = await db.walletTransaction.create({
       data: {
         userId: session.userId,
         type: "TOPUP",
         amount,
-        balanceAfter: Number(user.walletBalance), // will be updated on success
+        balanceAfter: Number(user.walletBalance), // updated on webhook confirmation
         description: `Wallet top-up — $${amount.toFixed(2)}`,
         status: "PENDING",
-        metadata: { payCurrency: payCurrency.toLowerCase() },
+        paymentId: String(payment.paymentId),
+        metadata: {
+          payCurrency: payCurrency.toLowerCase(),
+          coinName: meta.name,
+          network: meta.network,
+          nowPaymentsOrderId: tempOrderRef,
+        },
       },
-    });
-
-    const meta = coinMeta(payCurrency);
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://simkuu.com";
-
-    const payment = await createPayment({
-      amount,
-      orderId: tx.id, // wallet tx id as order id
-      description: `Simkuu Wallet Top-Up — $${amount.toFixed(2)}`,
-      payCurrency,
-      callbackUrl: `${baseUrl}/api/webhooks/nowpayments`,
-    });
-
-    // Store payment id on the transaction
-    await db.walletTransaction.update({
-      where: { id: tx.id },
-      data: { paymentId: String(payment.paymentId), metadata: { payCurrency: payCurrency.toLowerCase(), coinName: meta.name } },
     });
 
     return NextResponse.json({
@@ -67,9 +97,10 @@ export async function POST(req: NextRequest) {
       payAmount: payment.payAmount,
       payCurrency: payment.payCurrency,
       coinName: meta.name,
-      network: meta.network,
+      network: payment.network ?? meta.network,
       qrData: `${payCurrency.toLowerCase()}:${payment.payAddress}?amount=${payment.payAmount}`,
-      expiresAt: payment.expiresAt,
+      payinExtraId: payment.payinExtraId ?? null,
+      expiresAt: payment.expiresAt ?? null,
     });
   } catch (err) {
     console.error("[wallet/topup]", err);
