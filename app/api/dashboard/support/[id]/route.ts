@@ -1,5 +1,5 @@
 export const runtime = "nodejs";
-
+// route: GET/POST /api/dashboard/support/[id]
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";

@@ -1,5 +1,5 @@
 export const runtime = "nodejs";
-
+// route: GET/PATCH /api/dashboard/profile
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
