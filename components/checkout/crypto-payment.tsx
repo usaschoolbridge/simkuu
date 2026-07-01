@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bitcoin, Loader2, ShieldCheck, Zap, Globe, AlertCircle,
-  Lock, Check, Copy, ChevronLeft, ExternalLink,
+  Lock, Check, Copy, ChevronLeft, ExternalLink, Clock,
 } from "lucide-react";
 
 interface CryptoPaymentProps {
@@ -28,21 +28,18 @@ interface Currency {
 
 interface PaymentData {
   orderId: string;
-  paymentId: string;
   payAddress: string;
-  payAmount: number;
   payCurrency: string;
-  network: string;
   coinName: string;
-  payinExtraId: string | null;
+  network: string;
   usdAmount: number;
-  expiresAt: string | null;
+  originalAmount: number;
+  discountAmount: number;
   qrDataUrl: string | null;
 }
 
-type Stage = "select" | "paying" | "details" | "done";
+type Stage = "select" | "creating" | "waiting" | "done";
 
-/** Real coin logo from the cryptocurrency-icons CDN, gradient fallback. */
 function CoinLogo({ logo, size = 32 }: { logo: string; size?: number }) {
   const [failed, setFailed] = useState(false);
   const src = `https://cdn.jsdelivr.net/npm/cryptocurrency-icons@0.18.1/svg/color/${logo}.svg`;
@@ -85,14 +82,9 @@ export function CryptoPayment({
   const [loadingCurrencies, setLoadingCurrencies] = useState(true);
   const [currenciesError, setCurrenciesError] = useState("");
   const [selected, setSelected] = useState<string>("");
-
-  const [estimate, setEstimate] = useState<number | null>(null);
-  const [estimating, setEstimating] = useState(false);
-
   const [payment, setPayment] = useState<PaymentData | null>(null);
   const [error, setError] = useState("");
-
-  const [statusLabel, setStatusLabel] = useState("Waiting for payment");
+  const [statusLabel, setStatusLabel] = useState("Waiting for admin confirmation");
   const [esim, setEsim] = useState<{ iccid: string; activationCode: string; qrCode: string } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -121,26 +113,6 @@ export function CryptoPayment({
     return () => { alive = false; };
   }, []);
 
-  // ── Live estimate whenever the selected coin changes ──────────────────────
-  useEffect(() => {
-    if (!selected) return;
-    let alive = true;
-    setEstimating(true);
-    setEstimate(null);
-    (async () => {
-      try {
-        const res = await fetch("/api/checkout/crypto/estimate", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ planId, payCurrency: selected }),
-        });
-        const data = await res.json();
-        if (alive && res.ok) setEstimate(data.estimatedAmount);
-      } catch { /* estimate is best-effort */ }
-      finally { if (alive) setEstimating(false); }
-    })();
-    return () => { alive = false; };
-  }, [selected, planId]);
-
   // ── Status polling ────────────────────────────────────────────────────────
   const stopPolling = useCallback(() => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -151,31 +123,27 @@ export function CryptoPayment({
       const res = await fetch(`/api/checkout/crypto/status?orderId=${encodeURIComponent(orderId)}`);
       const data = await res.json();
       if (!res.ok) return;
-      switch (data.state) {
-        case "completed":
-          stopPolling();
-          setEsim(data.esim ?? null);
-          setStatusLabel("Payment confirmed");
-          setStage("done");
-          break;
-        case "confirming": setStatusLabel("Confirming on-chain…"); break;
-        case "processing": setStatusLabel("Payment received — provisioning…"); break;
-        case "failed":
-          stopPolling();
-          setStatusLabel("Payment expired or failed");
-          setError("This payment expired or failed. Please start a new checkout.");
-          break;
-        default: setStatusLabel("Waiting for payment");
+      if (data.state === "completed") {
+        stopPolling();
+        setEsim(data.esim ?? null);
+        setStatusLabel("Payment confirmed — eSIM delivered!");
+        setStage("done");
+      } else if (data.state === "failed") {
+        stopPolling();
+        setStatusLabel("Order cancelled");
+        setError("This order was cancelled. Please start a new checkout.");
+      } else {
+        setStatusLabel("Waiting for payment confirmation…");
       }
     } catch { /* keep polling */ }
   }, [stopPolling]);
 
   useEffect(() => () => stopPolling(), [stopPolling]);
 
-  // ── Create the on-chain payment ───────────────────────────────────────────
+  // ── Create the order ──────────────────────────────────────────────────────
   const handleContinue = async () => {
     if (!selected) return;
-    setStage("paying");
+    setStage("creating");
     setError("");
     try {
       const res = await fetch("/api/checkout/crypto/create", {
@@ -190,10 +158,10 @@ export function CryptoPayment({
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Could not create payment."); setStage("select"); return; }
       setPayment(data);
-      setStage("details");
-      // Begin polling immediately, then every 8s.
+      setStage("waiting");
+      // Poll every 10s for admin confirmation
       poll(data.orderId);
-      pollRef.current = setInterval(() => poll(data.orderId), 8000);
+      pollRef.current = setInterval(() => poll(data.orderId), 10000);
     } catch {
       setError("Network error. Please try again.");
       setStage("select");
@@ -209,7 +177,9 @@ export function CryptoPayment({
           <Check className="w-8 h-8 text-emerald-600" />
         </div>
         <h3 className="text-lg font-black text-black mb-1">Payment confirmed!</h3>
-        <p className="text-sm text-black/50 mb-5 max-w-[280px]">Your eSIM for {planName} is ready. We&apos;ve emailed your QR code to {customerEmail}.</p>
+        <p className="text-sm text-black/50 mb-5 max-w-[280px]">
+          Your eSIM for {planName} is ready. We&apos;ve emailed your QR code to {customerEmail}.
+        </p>
         {esim?.qrCode && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={esim.qrCode} alt="eSIM QR" width={180} height={180} className="rounded-xl border-2 border-black/10 mb-4" />
@@ -225,21 +195,21 @@ export function CryptoPayment({
     );
   }
 
-  // ── PAYING (spinner while creating) ───────────────────────────────────────
-  if (stage === "paying") {
+  // ── CREATING (spinner) ─────────────────────────────────────────────────────
+  if (stage === "creating") {
     return (
       <div className="flex flex-col items-center text-center py-10">
         <Loader2 className="w-8 h-8 animate-spin text-amber-500 mb-3" />
-        <p className="text-sm font-semibold text-black">Generating your {selectedCoin?.name} payment…</p>
-        <p className="text-xs text-black/40 mt-1">Locking in the live exchange rate</p>
+        <p className="text-sm font-semibold text-black">Setting up your {selectedCoin?.name} payment…</p>
       </div>
     );
   }
 
-  // ── DETAILS (address + QR + live status) ──────────────────────────────────
-  if (stage === "details" && payment) {
+  // ── WAITING (show QR + address) ───────────────────────────────────────────
+  if (stage === "waiting" && payment) {
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+        {/* Coin header */}
         <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-100 rounded-xl">
           <CoinLogo logo={selectedCoin?.logo ?? payment.payCurrency} size={32} />
           <div className="flex-1">
@@ -248,47 +218,39 @@ export function CryptoPayment({
           </div>
         </div>
 
-        {/* Live status */}
-        <div className="flex items-center gap-2 px-3 py-2.5 bg-blue-50 border border-blue-100 rounded-xl">
-          <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-          <span className="text-sm font-medium text-blue-700">{statusLabel}</span>
+        {/* Amount due */}
+        <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-black/[0.03] border border-black/[0.06]">
+          <span className="text-sm text-black/60">Amount due</span>
+          <span className="text-lg font-black text-black">${payment.usdAmount.toFixed(2)} USD</span>
         </div>
+        {payment.discountAmount > 0 && (
+          <div className="flex items-center justify-between px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-100 -mt-2">
+            <span className="text-xs text-emerald-600">Coupon discount applied</span>
+            <span className="text-sm font-bold text-emerald-600">−${payment.discountAmount.toFixed(2)}</span>
+          </div>
+        )}
 
-        {/* QR */}
+        {/* QR Code */}
         {payment.qrDataUrl && (
-          <div className="flex justify-center">
+          <div className="flex justify-center py-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={payment.qrDataUrl} alt="Payment address QR" width={180} height={180}
+            <img src={payment.qrDataUrl} alt="Payment address QR" width={200} height={200}
               className="rounded-xl border-2 border-black/10" />
           </div>
         )}
 
-        {/* Amount + address */}
-        <div className="space-y-3">
-          <CopyRow label={`Amount (${payment.payCurrency.toUpperCase()})`} value={String(payment.payAmount)} />
-          <CopyRow label="Send to address" value={payment.payAddress} />
-          {payment.payinExtraId && (
-            <div className="p-2.5 bg-red-50 border border-red-100 rounded-xl">
-              <CopyRow label="⚠ Required memo / tag" value={payment.payinExtraId} />
-              <p className="text-[10px] text-red-500 mt-1">You must include this memo or your payment will be lost.</p>
-            </div>
-          )}
+        {/* Address */}
+        <CopyRow label="Send to address" value={payment.payAddress} />
+
+        {/* Status */}
+        <div className="flex items-center gap-2 px-3 py-2.5 bg-blue-50 border border-blue-100 rounded-xl">
+          <Clock className="w-4 h-4 text-blue-400 flex-shrink-0" />
+          <span className="text-sm font-medium text-blue-700">{statusLabel}</span>
         </div>
 
-        {/* Meta */}
-        <div className="grid grid-cols-2 gap-2 text-center">
-          <div className="p-2.5 rounded-xl bg-black/[0.02] border border-black/[0.04]">
-            <div className="text-[10px] text-black/40 uppercase tracking-wider">USD value</div>
-            <div className="text-sm font-bold text-black">${payment.usdAmount.toFixed(2)}</div>
-          </div>
-          <div className="p-2.5 rounded-xl bg-black/[0.02] border border-black/[0.04]">
-            <div className="text-[10px] text-black/40 uppercase tracking-wider">Confirmation</div>
-            <div className="text-sm font-bold text-black">~5–30 min</div>
-          </div>
-        </div>
-
-        <p className="text-center text-[11px] text-black/40">
-          Send the <strong>exact</strong> amount. This page updates automatically once your payment is detected — keep it open.
+        <p className="text-center text-[11px] text-black/40 leading-relaxed">
+          Send the exact USD amount in {payment.coinName}. Once we confirm your payment,
+          your eSIM is delivered instantly — keep this page open.
         </p>
 
         {error && (
@@ -306,7 +268,7 @@ export function CryptoPayment({
     );
   }
 
-  // ── SELECT (default) ──────────────────────────────────────────────────────
+  // ── SELECT ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-100 rounded-2xl">
@@ -315,27 +277,29 @@ export function CryptoPayment({
         </div>
         <div>
           <div className="font-semibold text-sm text-black">Pay with Cryptocurrency</div>
-          <div className="text-xs text-black/50">Choose a coin — pay without leaving this page</div>
+          <div className="text-xs text-black/50">Choose a coin — scan QR to pay</div>
         </div>
       </div>
 
-      <div className="bg-black/[0.02] border border-black/[0.06] rounded-2xl p-4">
-        <div className="flex items-center justify-between mb-2">
+      {/* Amount summary */}
+      <div className="bg-black/[0.02] border border-black/[0.06] rounded-2xl p-4 space-y-1.5">
+        <div className="flex items-center justify-between">
           <span className="text-sm text-black/50">Plan</span>
           <span className="text-sm font-semibold text-black">{planName}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-sm text-black/50">Amount</span>
+          <span className="text-sm text-black/50">Total</span>
           <span className="text-lg font-black text-black">${usdAmount.toFixed(2)} USD</span>
         </div>
       </div>
 
+      {/* Coin grid */}
       <div>
         <p className="text-xs font-semibold text-black/40 uppercase tracking-wider mb-3">Choose cryptocurrency</p>
 
         {loadingCurrencies ? (
           <div className="flex items-center justify-center py-8 gap-2 text-black/40">
-            <Loader2 className="w-5 h-5 animate-spin" /> Loading coins…
+            <Loader2 className="w-5 h-5 animate-spin" /> Loading…
           </div>
         ) : currenciesError ? (
           <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl">
@@ -343,45 +307,32 @@ export function CryptoPayment({
             <p className="text-xs text-red-600">{currenciesError}</p>
           </div>
         ) : (
-          <>
-            <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1">
-              {currencies.map((coin) => {
-                const active = coin.code === selected;
-                return (
-                  <button key={coin.code} type="button" onClick={() => setSelected(coin.code)} aria-pressed={active}
-                    className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 bg-white transition-all ${
-                      active ? "border-amber-500 ring-2 ring-amber-200 shadow-sm" : "border-black/[0.06] hover:border-black/20"
-                    }`}>
-                    {active && (
-                      <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-amber-500 flex items-center justify-center">
-                        <Check className="w-2.5 h-2.5 text-white" />
-                      </span>
-                    )}
-                    <CoinLogo logo={coin.logo} size={28} />
-                    <span className={`text-[10px] font-bold leading-tight ${active ? "text-black" : "text-black/60"}`}>{coin.name}</span>
-                    <span className="text-[8px] text-black/35 leading-tight">{coin.network}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Estimate */}
-            <div className="mt-3 flex items-center justify-between px-3 py-2.5 rounded-xl bg-amber-50/50 border border-amber-100">
-              <span className="text-xs text-black/50">
-                You&apos;ll pay with <span className="font-semibold text-black">{selectedCoin?.name}</span>
-              </span>
-              <span className="text-sm font-bold text-black">
-                {estimating ? <Loader2 className="w-3.5 h-3.5 animate-spin inline text-amber-500" />
-                  : estimate != null ? `≈ ${estimate} ${selected.toUpperCase()}` : "—"}
-              </span>
-            </div>
-          </>
+          <div className="grid grid-cols-3 gap-2">
+            {currencies.map((coin) => {
+              const active = coin.code === selected;
+              return (
+                <button key={coin.code} type="button" onClick={() => setSelected(coin.code)} aria-pressed={active}
+                  className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 bg-white transition-all ${
+                    active ? "border-amber-500 ring-2 ring-amber-200 shadow-sm" : "border-black/[0.06] hover:border-black/20"
+                  }`}>
+                  {active && (
+                    <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-amber-500 flex items-center justify-center">
+                      <Check className="w-2.5 h-2.5 text-white" />
+                    </span>
+                  )}
+                  <CoinLogo logo={coin.logo} size={28} />
+                  <span className={`text-[10px] font-bold leading-tight text-center ${active ? "text-black" : "text-black/60"}`}>{coin.name}</span>
+                  <span className="text-[8px] text-black/35 leading-tight text-center">{coin.network}</span>
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
 
       <div className="grid grid-cols-3 gap-2 text-center">
         {[
-          { icon: <Zap className="w-3.5 h-3.5" />, label: "Instant" },
+          { icon: <Zap className="w-3.5 h-3.5" />, label: "Instant QR" },
           { icon: <ShieldCheck className="w-3.5 h-3.5" />, label: "Secure" },
           { icon: <Globe className="w-3.5 h-3.5" />, label: "Worldwide" },
         ].map(({ icon, label }) => (
@@ -402,11 +353,11 @@ export function CryptoPayment({
       <motion.button whileTap={{ scale: 0.98 }} onClick={handleContinue}
         disabled={loadingCurrencies || !selected || !!currenciesError}
         className="w-full flex items-center justify-center gap-2.5 py-4 rounded-xl bg-gradient-to-r from-orange-400 to-amber-500 text-white font-bold text-sm hover:opacity-90 disabled:opacity-50 transition-all shadow-lg shadow-orange-500/20">
-        {selectedCoin ? <><CoinLogo logo={selectedCoin.logo} size={20} /> Continue with {selectedCoin.name}</> : "Select a coin"}
+        {selectedCoin ? <><CoinLogo logo={selectedCoin.logo} size={20} /> Get Payment Address</> : "Select a coin"}
       </motion.button>
 
       <p className="text-center text-[10px] text-black/25 flex items-center justify-center gap-1">
-        <Lock className="w-3 h-3" /> 256-bit encrypted · Powered by NOWPayments
+        <Lock className="w-3 h-3" /> 256-bit encrypted · Instant QR delivery
       </p>
     </div>
   );

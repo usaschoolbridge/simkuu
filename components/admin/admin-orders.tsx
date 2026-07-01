@@ -51,8 +51,33 @@ function CopyCell({ value }: { value: string }) {
   );
 }
 
-function DetailModal({ order, onClose }: { order: Order; onClose: () => void }) {
+function DetailModal({ order, onClose, onRefresh }: { order: Order; onClose: () => void; onRefresh: () => void }) {
   const meta = order.metadata ?? {};
+  const [markingPaid, setMarkingPaid] = useState(false);
+  const [markPaidError, setMarkPaidError] = useState<string | null>(null);
+  const [markPaidOk, setMarkPaidOk] = useState(false);
+
+  const isPendingCrypto = order.status === "PENDING" && order.paymentProvider === "CRYPTO" && !order.esim;
+
+  const markAsPaid = async () => {
+    setMarkingPaid(true);
+    setMarkPaidError(null);
+    try {
+      const res = await fetch(`/api/admin/orders/${order.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_paid" }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setMarkPaidError(data.error ?? "Failed"); }
+      else { setMarkPaidOk(true); onRefresh(); }
+    } catch {
+      setMarkPaidError("Network error");
+    } finally {
+      setMarkingPaid(false);
+    }
+  };
+
   const Row = ({ label, value }: { label: string; value?: string | null }) => value ? (
     <div className="flex items-start gap-3 py-2 border-b border-black/[0.04] last:border-0">
       <span className="text-xs text-black/40 w-36 flex-shrink-0 pt-0.5">{label}</span>
@@ -73,6 +98,28 @@ function DetailModal({ order, onClose }: { order: Order; onClose: () => void }) 
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-black/5 transition-colors"><X className="w-4 h-4" /></button>
         </div>
+
+        {/* Mark as Paid button for pending crypto orders */}
+        {isPendingCrypto && (
+          <div className="px-5 pt-4">
+            {markPaidOk ? (
+              <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-200 text-sm font-semibold text-emerald-700">
+                <Check className="w-4 h-4" /> eSIM assigned and email sent to customer!
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700">
+                  <strong>Pending crypto payment.</strong> Verify you received ${Number(order.amount).toFixed(2)} in {meta.coinName ?? "crypto"} at the address below, then click Mark as Paid to deliver the eSIM.
+                </div>
+                <button onClick={markAsPaid} disabled={markingPaid}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 disabled:opacity-60 transition-colors">
+                  {markingPaid ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing…</> : <><Bitcoin className="w-4 h-4" /> Mark as Paid & Deliver eSIM</>}
+                </button>
+                {markPaidError && <p className="text-xs text-red-500 text-center">{markPaidError}</p>}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="p-5 space-y-4">
           {/* Customer */}
@@ -167,7 +214,7 @@ export function AdminOrdersContent() {
   return (
     <>
       <AnimatePresence>
-        {detail && <DetailModal key="modal" order={detail} onClose={() => setDetail(null)} />}
+        {detail && <DetailModal key="modal" order={detail} onClose={() => setDetail(null)} onRefresh={fetchOrders} />}
       </AnimatePresence>
 
       <div className="space-y-4">

@@ -1,13 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { db } from "@/lib/db";
+import { fulfillAndNotify } from "@/lib/fulfillment";
 
 export const runtime = "nodejs";
 
+const ADMIN_COOKIE = "simkuu_admin_session";
+async function requireAdmin(): Promise<boolean> {
+  const c = await cookies();
+  return c.get(ADMIN_COOKIE)?.value === "authenticated";
+}
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
+  if (!(await requireAdmin())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   try {
     const { id } = await params;
     const body = await req.json();
+
+    // Special action: mark crypto order as paid → trigger fulfillment
+    if (body.action === "mark_paid") {
+      const order = await db.order.findUnique({ where: { id } });
+      if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      if (order.status === "ACTIVE") return NextResponse.json({ error: "Order already completed" }, { status: 400 });
+
+      const result = await fulfillAndNotify(id, "admin_manual");
+      if (!result.ok) {
+        return NextResponse.json(
+          { error: result.reason === "no_inventory" ? "No eSIM inventory available for this plan" : result.message },
+          { status: 422 }
+        );
+      }
+
+      return NextResponse.json({ ok: true, esim: result.esim });
+    }
+
+    // Generic status update
     const order = await db.order.update({
       where: { id },
       data: {

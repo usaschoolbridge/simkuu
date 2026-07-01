@@ -1,12 +1,20 @@
 export const runtime = "nodejs";
 
+/**
+ * POST /api/checkout/crypto/create
+ * Creates a PENDING order and returns the admin's static wallet address for
+ * the selected coin — no external payment gateway needed.
+ * Admin manually confirms payment in the admin panel → triggers eSIM fulfillment.
+ */
+
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { rateLimit, checkoutLimiter } from "@/lib/rate-limit";
-import { generateQrDataUrl } from "@/lib/fulfillment";
-import { createPayment, coinMeta, NOWPAYMENTS_API_KEY } from "@/lib/payments/nowpayments";
+import { coinMeta } from "@/lib/payments/nowpayments";
+import { getWalletAddress } from "@/app/api/checkout/crypto/currencies/route";
 import { sendCryptoOrderPlaced } from "@/lib/email";
+import QRCode from "qrcode";
 
 const schema = z.object({
   planId: z.string().min(1),
@@ -19,48 +27,20 @@ const schema = z.object({
   compat: z.string().optional(),
 });
 
-/**
- * Build a crypto URI that wallet apps can scan to auto-fill the amount.
- * Follows BIP-21 for BTC/LTC, EIP-681 simplified for ETH, Solana Pay for SOL,
- * and a generic currency:address?amount=X for others.
- */
-function buildCryptoPayUri(
-  payCurrency: string,
-  address: string,
-  amount: number,
-  extraId?: string | null,
-): string {
+/** Build a crypto URI that wallet apps can scan to auto-fill the amount. */
+function buildCryptoPayUri(payCurrency: string, address: string): string {
   const c = payCurrency.toLowerCase();
-
-  if (c === "btc") return `bitcoin:${address}?amount=${amount}`;
-  if (c === "ltc") return `litecoin:${address}?amount=${amount}`;
-  if (c === "doge") return `dogecoin:${address}?amount=${amount}`;
-  if (c === "sol") return `solana:${address}?amount=${amount}`;
-  if (c === "trx" || c === "usdttrc20") {
-    const base = `tron:${address}?amount=${amount}`;
-    return extraId ? `${base}&memo=${extraId}` : base;
-  }
-  if (c === "eth" || c === "usdcerc20" || c === "usdc") {
-    // EIP-681 simplified — amount in ETH for ETH; token transfers need contract but most wallets fall back gracefully
-    return `ethereum:${address}?value=${amount}`;
-  }
-  if (c === "usdterc20" || c === "usdtbsc") {
-    return `ethereum:${address}?value=${amount}`;
-  }
-  // Generic fallback — covers XMR, TON, BNB, MATIC, etc.
-  const scheme = c.replace(/[0-9].*$/, ""); // strip trailing numbers/network suffix
-  const base = `${scheme}:${address}?amount=${amount}`;
-  return extraId ? `${base}&memo=${extraId}` : base;
+  if (c === "btc")       return `bitcoin:${address}`;
+  if (c === "ltc")       return `litecoin:${address}`;
+  if (c === "doge")      return `dogecoin:${address}`;
+  if (c === "sol")       return `solana:${address}`;
+  if (c === "trx" || c === "usdttrc20") return `tron:${address}`;
+  if (c === "eth" || c.includes("erc20") || c === "usdc") return `ethereum:${address}`;
+  return address; // plain address for unknown coins
 }
 
 export async function POST(req: NextRequest) {
   if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
-  if (!NOWPAYMENTS_API_KEY) {
-    return NextResponse.json(
-      { error: "Crypto payments are not enabled yet. Please choose another method or contact support." },
-      { status: 503 }
-    );
-  }
 
   const limit = await rateLimit(req, checkoutLimiter);
   if (!limit.success) {
@@ -73,13 +53,22 @@ export async function POST(req: NextRequest) {
   }
   const { planId, email, name, phone, country, payCurrency, couponCode, compat } = parsed.data;
 
+  // Check wallet address is configured
+  const walletAddress = getWalletAddress(payCurrency);
+  if (!walletAddress) {
+    return NextResponse.json(
+      { error: `${payCurrency.toUpperCase()} is not configured for payments. Please choose a different coin.` },
+      { status: 400 }
+    );
+  }
+
   try {
     const plan = await db.plan.findUnique({ where: { id: planId }, include: { carrier: true } });
     if (!plan || !plan.isActive) {
       return NextResponse.json({ error: "Plan not available" }, { status: 404 });
     }
 
-    // ── Coupon validation (same logic as /api/orders) ────────────────────────
+    // ── Coupon validation ─────────────────────────────────────────────────────
     let coupon = null;
     let discountAmount = 0;
     if (couponCode) {
@@ -92,18 +81,16 @@ export async function POST(req: NextRequest) {
         const planPrice = Number(plan.price);
         if (!coupon.minOrderAmount || planPrice >= Number(coupon.minOrderAmount)) {
           if (coupon.applicablePlans.length === 0 || coupon.applicablePlans.includes(planId)) {
-            if (coupon.discountType === "PERCENTAGE") {
-              discountAmount = (planPrice * Number(coupon.discountValue)) / 100;
-            } else {
-              discountAmount = Math.min(Number(coupon.discountValue), planPrice);
-            }
+            discountAmount = coupon.discountType === "PERCENTAGE"
+              ? (planPrice * Number(coupon.discountValue)) / 100
+              : Math.min(Number(coupon.discountValue), planPrice);
             discountAmount = parseFloat(discountAmount.toFixed(2));
           }
         }
       }
     }
 
-    const finalAmount = Math.max(0.5, parseFloat((Number(plan.price) - discountAmount).toFixed(2)));
+    const finalAmount = parseFloat(Math.max(0, Number(plan.price) - discountAmount).toFixed(2));
 
     const cleanEmail = email.toLowerCase().trim();
     const user = await db.user.upsert({
@@ -119,7 +106,7 @@ export async function POST(req: NextRequest) {
         userId: user.id,
         planId: plan.id,
         status: "PENDING",
-        amount: finalAmount,       // ← DISCOUNTED amount stored on order
+        amount: finalAmount,
         currency: "USD",
         paymentProvider: "CRYPTO",
         ...(coupon && discountAmount > 0 ? { couponId: coupon.id, discountAmount } : {}),
@@ -127,6 +114,7 @@ export async function POST(req: NextRequest) {
           payCurrency: payCurrency.toLowerCase(),
           coinName: meta.name,
           network: meta.network,
+          payAddress: walletAddress,
           ...(phone ? { phone } : {}),
           ...(country ? { country } : {}),
           ...(compat ? { compat } : {}),
@@ -139,78 +127,45 @@ export async function POST(req: NextRequest) {
       await db.coupon.update({ where: { id: coupon.id }, data: { usedCount: { increment: 1 } } });
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://simkuu.com";
+    // Generate QR code — encode just the address URI so any wallet can scan it
+    const payUri = buildCryptoPayUri(payCurrency, walletAddress);
+    const qrDataUrl = await QRCode.toDataURL(payUri, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 300,
+      color: { dark: "#000000", light: "#FFFFFF" },
+    }).catch(() => null);
 
-    // ── Create payment with FINAL (discounted) amount ────────────────────────
-    const payment = await createPayment({
-      amount: finalAmount,          // ← DISCOUNTED amount sent to NOWPayments
-      orderId: order.id,
-      description: `${plan.name} — eSIM Plan`,
-      payCurrency,
-      callbackUrl: `${baseUrl}/api/webhooks/nowpayments`,
-    });
-
-    // Persist provider payment id + on-chain details on the order.
-    await db.order.update({
-      where: { id: order.id },
-      data: {
-        paymentId: payment.paymentId,
-        metadata: {
-          payCurrency: payment.payCurrency,
-          coinName: meta.name,
-          network: payment.network,
-          payAddress: payment.payAddress,
-          payAmount: payment.payAmount,
-          paymentId: payment.paymentId,
-          ...(payment.payinExtraId ? { payinExtraId: payment.payinExtraId } : {}),
-          ...(phone ? { phone } : {}),
-          ...(country ? { country } : {}),
-          ...(compat ? { compat } : {}),
-        },
-      },
-    });
-
-    // Order-placed confirmation email (best effort)
+    // Send order-placed email (best effort)
     sendCryptoOrderPlaced(cleanEmail, {
       name,
       orderId: order.id,
       planName: plan.name,
       coinName: meta.name,
-      network: payment.network,
-      payAmount: payment.payAmount,
-      payCurrency: payment.payCurrency,
+      network: meta.network,
+      payAmount: finalAmount,   // USD amount — no crypto conversion
+      payCurrency: "USD",
       usdAmount: finalAmount,
-    }).catch((e) => console.error("[crypto-create] order-placed email failed", e));
-
-    // ── QR encodes full payment URI (address + amount) ────────────────────────
-    // This lets wallet apps (Trust Wallet, Coinbase, MetaMask, etc.) auto-fill
-    // the exact amount when the user scans — no manual entry required.
-    const payUri = buildCryptoPayUri(
-      payment.payCurrency,
-      payment.payAddress,
-      payment.payAmount,
-      payment.payinExtraId,
-    );
-    const qrDataUrl = await generateQrDataUrl(payUri).catch(() => null);
+    }).catch((e) => console.error("[crypto-create] email failed", e));
 
     return NextResponse.json({
       orderId: order.id,
-      paymentId: payment.paymentId,
-      paymentStatus: payment.paymentStatus,
-      payAddress: payment.payAddress,
-      payAmount: payment.payAmount,
-      payCurrency: payment.payCurrency,
-      network: payment.network,
+      payAddress: walletAddress,
+      payCurrency: payCurrency.toLowerCase(),
       coinName: meta.name,
-      payinExtraId: payment.payinExtraId,
+      network: meta.network,
       usdAmount: finalAmount,
       originalAmount: Number(plan.price),
       discountAmount,
-      expiresAt: payment.expiresAt,
       qrDataUrl,
+      // No payAmount / paymentId / expiresAt — these are manual payments
+      payAmount: null,
+      paymentId: null,
+      payinExtraId: null,
+      expiresAt: null,
     });
   } catch (err) {
     console.error("[crypto-create]", err);
-    return NextResponse.json({ error: "Could not create the crypto payment. Please try again." }, { status: 502 });
+    return NextResponse.json({ error: "Could not create your order. Please try again." }, { status: 500 });
   }
 }
