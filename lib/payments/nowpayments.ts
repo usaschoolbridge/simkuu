@@ -103,7 +103,9 @@ export function verifyWebhookSignature(
 }
 
 // NOWPayments payment statuses
-export const PAID_STATUSES = ["finished", "confirmed", "sending", "partially_paid"];
+// "partially_paid" intentionally excluded — customer sent less than required,
+// do NOT fulfill. "sending" means NOWPayments is forwarding funds to merchant (confirmed).
+export const PAID_STATUSES = ["finished", "confirmed", "sending"];
 export const FAILED_STATUSES = ["failed", "refunded", "expired"];
 
 // ─────────────────────────────────────────────────────────────────────────────

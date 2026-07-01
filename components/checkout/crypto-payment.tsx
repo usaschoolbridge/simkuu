@@ -15,6 +15,7 @@ interface CryptoPaymentProps {
   customerName: string;
   customerPhone?: string;
   customerCountry?: string;
+  couponCode?: string;
   onSuccess?: (orderId: string) => void;
 }
 
@@ -77,7 +78,7 @@ function CopyRow({ label, value }: { label: string; value: string }) {
 
 export function CryptoPayment({
   planId, planName, usdAmount, customerEmail, customerName,
-  customerPhone, customerCountry, onSuccess,
+  customerPhone, customerCountry, couponCode, onSuccess,
 }: CryptoPaymentProps) {
   const [stage, setStage] = useState<Stage>("select");
   const [currencies, setCurrencies] = useState<Currency[]>([]);
@@ -183,6 +184,7 @@ export function CryptoPayment({
           planId, email: customerEmail, name: customerName, payCurrency: selected,
           ...(customerPhone ? { phone: customerPhone } : {}),
           ...(customerCountry ? { country: customerCountry } : {}),
+          ...(couponCode ? { couponCode } : {}),
         }),
       });
       const data = await res.json();

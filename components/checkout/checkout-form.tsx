@@ -329,6 +329,7 @@ export function CheckoutForm({ plan, discount = 0, onCouponApply }: CheckoutForm
                       customerName={contactData?.name ?? ""}
                       customerPhone={contactData?.phone ?? ""}
                       customerCountry={contactData?.country ?? ""}
+                      couponCode={couponCode || undefined}
                       onSuccess={(orderId) => router.push(`/checkout/success?orderId=${encodeURIComponent(orderId)}`)}
                     />
                   </motion.div>
