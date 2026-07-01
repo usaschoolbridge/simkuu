@@ -81,7 +81,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const finalAmount = parseFloat(Math.max(1, Number(plan.price) - discountAmount).toFixed(2));
+    const TAX_RATE = 0.09;
+    const priceAfterDiscount = Math.max(1, Number(plan.price) - discountAmount);
+    const taxAmount = parseFloat((priceAfterDiscount * TAX_RATE).toFixed(2));
+    const finalAmount = parseFloat((priceAfterDiscount + taxAmount).toFixed(2));
 
     const cleanEmail = email.toLowerCase().trim();
     const user = await db.user.upsert({
