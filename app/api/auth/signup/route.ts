@@ -4,8 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { signToken, createSessionCookie } from "@/lib/session";
-import { sendWelcomeEmail } from "@/lib/email";
+import { sendEmailVerification } from "@/lib/email";
 import { cookies } from "next/headers";
 
 const signupSchema = z
@@ -24,6 +23,10 @@ const signupSchema = z
     message: "Passwords do not match",
     path: ["confirmPassword"],
   });
+
+function generateOTP(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -51,13 +54,31 @@ export async function POST(req: NextRequest) {
 
     const existing = await db.user.findUnique({ where: { email: normalizedEmail } });
     if (existing) {
+      // If user exists but is not verified, allow re-sending OTP
+      if (!existing.emailVerified) {
+        // Delete old tokens and send a new OTP
+        await db.verificationToken.deleteMany({ where: { identifier: normalizedEmail } });
+        const otp = generateOTP();
+        await db.verificationToken.create({
+          data: {
+            identifier: normalizedEmail,
+            token: otp,
+            expires: new Date(Date.now() + 10 * 60 * 1000),
+          },
+        });
+        await sendEmailVerification(normalizedEmail, otp);
+        return NextResponse.json(
+          { requiresVerification: true, email: normalizedEmail },
+          { status: 200 }
+        );
+      }
       return NextResponse.json(
         { error: "An account with this email already exists" },
         { status: 409 }
       );
     }
 
-    // Validate referral code (prevent self-referral checked by email)
+    // Validate referral code
     let referredById: string | undefined;
     if (refCode) {
       const referrer = await db.user.findUnique({
@@ -70,35 +91,40 @@ export async function POST(req: NextRequest) {
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Create user WITHOUT setting emailVerified
     const user = await db.user.create({
       data: {
         name: fullName,
         email: normalizedEmail,
         hashedPassword,
+        emailVerified: null, // Must verify email before logging in
         ...(referredById ? { referredById } : {}),
       },
     });
 
-    // Send welcome email (best-effort — never block signup)
-    sendWelcomeEmail(user.email, user.name ?? fullName).catch(e =>
-      console.error("[signup] welcome email failed:", e)
-    );
-
-    const token = signToken({
-      userId: user.id,
-      email: user.email,
-      fullName: user.name ?? fullName,
-    });
-    const cookie = createSessionCookie(token);
-
-    const res = NextResponse.json(
-      {
-        success: true,
-        user: { id: user.id, email: user.email, fullName: user.name ?? fullName },
+    // Generate OTP and store in VerificationToken
+    const otp = generateOTP();
+    await db.verificationToken.deleteMany({ where: { identifier: normalizedEmail } });
+    await db.verificationToken.create({
+      data: {
+        identifier: normalizedEmail,
+        token: otp,
+        expires: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
       },
+    });
+
+    // Send verification email — if this fails, still return success so user knows to check email
+    const emailResult = await sendEmailVerification(normalizedEmail, otp);
+    if (!emailResult.success) {
+      console.error("[signup] Failed to send verification email:", emailResult.error);
+    }
+
+    // Do NOT set session cookie — user must verify email first
+    const res = NextResponse.json(
+      { requiresVerification: true, email: normalizedEmail },
       { status: 201 }
     );
-    res.cookies.set(cookie);
     // Clear referral cookie
     res.cookies.set("simkuu_referral", "", { maxAge: 0, path: "/" });
     return res;

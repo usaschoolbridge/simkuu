@@ -6,16 +6,19 @@ import {
   Wallet, Plus, ArrowUpRight, ArrowDownLeft, DollarSign,
   Zap, Loader2, AlertCircle, Copy, Check, X, RefreshCw, Bitcoin, CheckCircle2,
 } from "lucide-react";
+import QRCode from "qrcode";
 
 const TOP_UP_AMOUNTS = [10, 25, 50, 100];
 
 const CRYPTO_OPTIONS = [
-  { code: "btc", symbol: "BTC", name: "Bitcoin" },
-  { code: "eth", symbol: "ETH", name: "Ethereum" },
-  { code: "usdttrc20", symbol: "USDT TRC20", name: "USDT (TRC20)" },
-  { code: "usdterc20", symbol: "USDT ERC20", name: "USDT (ERC20)" },
-  { code: "usdc", symbol: "USDC", name: "USD Coin" },
-  { code: "ltc", symbol: "LTC", name: "Litecoin" },
+  { code: "btc",        symbol: "BTC",       name: "Bitcoin" },
+  { code: "eth",        symbol: "ETH",       name: "Ethereum" },
+  { code: "usdttrc20",  symbol: "USDT TRC20",name: "USDT (TRC20)" },
+  { code: "usdterc20",  symbol: "USDT ERC20",name: "USDT (ERC20)" },
+  { code: "usdc",       symbol: "USDC",      name: "USD Coin" },
+  { code: "ltc",        symbol: "LTC",       name: "Litecoin" },
+  { code: "sol",        symbol: "SOL",       name: "Solana" },
+  { code: "trx",        symbol: "TRX",       name: "TRON" },
 ];
 
 interface WalletTx {
@@ -30,17 +33,25 @@ interface WalletData {
 }
 
 interface TopupPayment {
-  txId: string; paymentId: string; payAddress: string; payAmount: number;
-  payCurrency: string; coinName: string;
+  txId: string;
+  paymentId: string;
+  payAddress: string;
+  payAmount: number;
+  payCurrency: string;
+  coinName: string;
+  network: string;
+  qrData: string;
+  payinExtraId: string | null;
+  expiresAt: string | null;
 }
 
 function typeIcon(type: string) {
   switch (type) {
-    case "TOPUP": return { Icon: ArrowDownLeft, color: "text-emerald-500", bg: "bg-emerald-50" };
-    case "PURCHASE": return { Icon: ArrowUpRight, color: "text-red-400", bg: "bg-red-50" };
-    case "REFERRAL_REWARD": return { Icon: Zap, color: "text-purple-500", bg: "bg-purple-50" };
-    case "REFUND": return { Icon: ArrowDownLeft, color: "text-blue-500", bg: "bg-blue-50" };
-    default: return { Icon: DollarSign, color: "text-black/40", bg: "bg-black/5" };
+    case "TOPUP":           return { Icon: ArrowDownLeft, color: "text-emerald-500", bg: "bg-emerald-50" };
+    case "PURCHASE":        return { Icon: ArrowUpRight,  color: "text-red-400",     bg: "bg-red-50" };
+    case "REFERRAL_REWARD": return { Icon: Zap,           color: "text-purple-500",  bg: "bg-purple-50" };
+    case "REFUND":          return { Icon: ArrowDownLeft, color: "text-blue-500",    bg: "bg-blue-50" };
+    default:                return { Icon: DollarSign,    color: "text-black/40",    bg: "bg-black/5" };
   }
 }
 
@@ -58,6 +69,7 @@ export function WalletContent() {
   const [payError, setPayError] = useState("");
   const [payment, setPayment] = useState<TopupPayment | null>(null);
   const [copied, setCopied] = useState<"address" | "amount" | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
   const finalAmount = custom ? parseFloat(custom) || 0 : topUpAmount;
   const coinMeta = CRYPTO_OPTIONS.find((c) => c.code === selectedCoin) ?? CRYPTO_OPTIONS[2];
@@ -73,7 +85,20 @@ export function WalletContent() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Poll every 12s while a payment is pending
+  // Generate QR code whenever payment changes
+  useEffect(() => {
+    if (!payment?.qrData) { setQrDataUrl(null); return; }
+    QRCode.toDataURL(payment.qrData, {
+      width: 200,
+      margin: 2,
+      color: { dark: "#000000", light: "#ffffff" },
+    }).then(setQrDataUrl).catch((e) => {
+      console.error("[wallet] QR generation failed:", e);
+      setQrDataUrl(null);
+    });
+  }, [payment]);
+
+  // Poll every 12s while a payment is pending to auto-refresh balance
   useEffect(() => {
     if (!payment) return;
     const t = setInterval(async () => {
@@ -82,13 +107,13 @@ export function WalletContent() {
       const d: WalletData = await r.json();
       setData(d);
       const tx = d.transactions.find((item) => item.id === payment.txId);
-      if (tx?.status === "COMPLETED") setPayment(null);
+      if (tx?.status === "COMPLETED") { setPayment(null); }
     }, 12000);
     return () => clearInterval(t);
   }, [payment]);
 
   async function handleTopup() {
-    if (finalAmount < 5) { setPayError("Minimum top-up is $5"); return; }
+    if (finalAmount < 5)    { setPayError("Minimum top-up is $5"); return; }
     if (finalAmount > 1000) { setPayError("Maximum top-up is $1,000"); return; }
     setPaying(true); setPayError("");
     try {
@@ -99,7 +124,7 @@ export function WalletContent() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Payment creation failed");
-      setPayment(d);
+      setPayment(d as TopupPayment);
     } catch (e: unknown) {
       setPayError(e instanceof Error ? e.message : "Failed — please try again");
     } finally {
@@ -109,7 +134,8 @@ export function WalletContent() {
 
   function copy(type: "address" | "amount") {
     if (!payment) return;
-    navigator.clipboard.writeText(type === "address" ? payment.payAddress : String(payment.payAmount)).catch(() => {});
+    const text = type === "address" ? payment.payAddress : String(payment.payAmount);
+    navigator.clipboard.writeText(text).catch(() => {});
     setCopied(type);
     setTimeout(() => setCopied(null), 2000);
   }
@@ -151,15 +177,47 @@ export function WalletContent() {
           <AnimatePresence mode="wait">
             {payment ? (
               <motion.div key="pay" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+                {/* Header */}
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-black">Send {payment.coinName}</span>
+                  <span className="text-sm font-semibold text-black">Send {payment.coinName} · ${finalAmount.toFixed(2)}</span>
                   <button onClick={() => setPayment(null)} className="p-1 rounded-lg hover:bg-black/5 text-black/30">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
-                <p className="text-xs text-black/40">
-                  Send exactly this amount to the address below. Your wallet will be credited with <strong>${finalAmount.toFixed(2)}</strong> once confirmed on-chain.
+
+                {/* QR Code */}
+                <div className="flex justify-center">
+                  {qrDataUrl ? (
+                    <div className="p-3 bg-white rounded-2xl border border-black/10 shadow-sm">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={qrDataUrl} alt="Payment QR Code" width={160} height={160} className="rounded-lg" />
+                    </div>
+                  ) : (
+                    <div className="w-[186px] h-[186px] rounded-2xl border border-black/10 flex items-center justify-center bg-black/[0.02]">
+                      <Loader2 className="w-6 h-6 text-black/20 animate-spin" />
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-xs text-black/40 text-center">
+                  Scan QR or copy the address below. Send exactly the amount shown.
                 </p>
+
+                {/* Network */}
+                <div className="text-xs text-center px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 font-medium w-fit mx-auto">
+                  Network: {payment.network}
+                </div>
+
+                {/* Memo/Tag if needed */}
+                {payment.payinExtraId && (
+                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-200">
+                    <p className="text-xs font-bold text-amber-700 mb-1">⚠ MEMO / TAG REQUIRED</p>
+                    <code className="text-xs text-amber-800 font-mono">{payment.payinExtraId}</code>
+                    <p className="text-xs text-amber-600 mt-1">You MUST include this memo/tag or your payment will be lost.</p>
+                  </div>
+                )}
+
+                {/* Address */}
                 <div>
                   <label className="text-xs text-black/40 font-medium mb-1 block">Payment address</label>
                   <div className="flex items-center gap-2">
@@ -171,8 +229,10 @@ export function WalletContent() {
                     </button>
                   </div>
                 </div>
+
+                {/* Amount */}
                 <div>
-                  <label className="text-xs text-black/40 font-medium mb-1 block">Amount to send</label>
+                  <label className="text-xs text-black/40 font-medium mb-1 block">Exact amount to send</label>
                   <div className="flex items-center gap-2">
                     <div className="flex-1 bg-black/[0.03] border border-black/10 rounded-xl px-3 py-2.5">
                       <span className="text-sm font-bold font-mono">{payment.payAmount} {payment.payCurrency.toUpperCase()}</span>
@@ -182,13 +242,22 @@ export function WalletContent() {
                     </button>
                   </div>
                 </div>
+
+                {/* Waiting status */}
                 <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50 border border-amber-100">
                   <Loader2 className="w-4 h-4 text-amber-500 animate-spin flex-shrink-0" />
-                  <span className="text-xs text-amber-700">Waiting for confirmation — this page auto-updates every 12 seconds.</span>
+                  <span className="text-xs text-amber-700">Waiting for blockchain confirmation — page auto-updates every 12 seconds.</span>
                 </div>
+
+                {payment.expiresAt && (
+                  <p className="text-xs text-black/30 text-center">
+                    Payment window expires: {new Date(payment.expiresAt).toLocaleTimeString()}
+                  </p>
+                )}
               </motion.div>
             ) : (
               <motion.div key="form" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+                {/* Amount presets */}
                 <div className="grid grid-cols-4 gap-2">
                   {TOP_UP_AMOUNTS.map((amt) => (
                     <button key={amt} onClick={() => { setTopUpAmount(amt); setCustom(""); }}
@@ -206,9 +275,11 @@ export function WalletContent() {
                     placeholder="Custom amount (min $5)" min="5" max="1000"
                     className="w-full pl-8 pr-4 py-3 rounded-xl border border-black/10 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all" />
                 </div>
+
+                {/* Coin selector */}
                 <div>
                   <label className="text-xs text-black/40 font-medium mb-1.5 block">Pay with cryptocurrency</label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-4 gap-2">
                     {CRYPTO_OPTIONS.map((coin) => (
                       <button key={coin.code} onClick={() => setSelectedCoin(coin.code)}
                         className={`px-2 py-2 rounded-xl border text-xs font-semibold transition-all ${
@@ -219,11 +290,13 @@ export function WalletContent() {
                     ))}
                   </div>
                 </div>
+
                 {payError && (
                   <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm">
                     <AlertCircle className="w-4 h-4 flex-shrink-0" />{payError}
                   </div>
                 )}
+
                 <button onClick={handleTopup} disabled={paying || finalAmount < 5}
                   className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-black text-white text-sm font-semibold hover:bg-black/80 transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
                   {paying
@@ -238,9 +311,9 @@ export function WalletContent() {
         {/* Stats */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="space-y-3">
           {[
-            { Icon: DollarSign, label: "Total topped up", value: `$${(data?.stats.totalTopup ?? 0).toFixed(2)}`, color: "text-blue-600", bg: "bg-blue-50" },
-            { Icon: ArrowDownLeft, label: "Total spent from wallet", value: `$${(data?.stats.totalSpent ?? 0).toFixed(2)}`, color: "text-purple-600", bg: "bg-purple-50" },
-            { Icon: Zap, label: "Referral credits earned", value: `$${(data?.stats.totalReferral ?? 0).toFixed(2)}`, color: "text-emerald-600", bg: "bg-emerald-50" },
+            { Icon: DollarSign,    label: "Total topped up",         value: `$${(data?.stats.totalTopup ?? 0).toFixed(2)}`,   color: "text-blue-600",   bg: "bg-blue-50" },
+            { Icon: ArrowDownLeft, label: "Total spent from wallet",  value: `$${(data?.stats.totalSpent ?? 0).toFixed(2)}`,   color: "text-purple-600", bg: "bg-purple-50" },
+            { Icon: Zap,           label: "Referral credits earned",  value: `$${(data?.stats.totalReferral ?? 0).toFixed(2)}`, color: "text-emerald-600",bg: "bg-emerald-50" },
           ].map((s) => (
             <div key={s.label} className="bg-white rounded-2xl border border-black/[0.06] p-4 shadow-sm flex items-center gap-4">
               <div className={`w-10 h-10 rounded-xl ${s.bg} flex items-center justify-center`}>
@@ -286,7 +359,7 @@ export function WalletContent() {
                     <span className="text-xs text-black/30">{tx.createdAt}</span>
                     <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
                       tx.status === "COMPLETED" ? "bg-emerald-50 text-emerald-600" :
-                      tx.status === "PENDING" ? "bg-amber-50 text-amber-600" : "bg-red-50 text-red-500"
+                      tx.status === "PENDING"   ? "bg-amber-50 text-amber-600"   : "bg-red-50 text-red-500"
                     }`}>{tx.status}</span>
                   </div>
                 </div>
@@ -296,7 +369,7 @@ export function WalletContent() {
                   </div>
                   <div className="text-xs text-black/30">Bal: ${tx.balanceAfter.toFixed(2)}</div>
                 </div>
-                {tx.status === "PENDING" && <Loader2 className="w-4 h-4 text-amber-400 animate-spin ml-1 flex-shrink-0" />}
+                {tx.status === "PENDING"   && <Loader2      className="w-4 h-4 text-amber-400 animate-spin ml-1 flex-shrink-0" />}
                 {tx.status === "COMPLETED" && credit && <CheckCircle2 className="w-4 h-4 text-emerald-400 ml-1 flex-shrink-0" />}
               </div>
             );

@@ -48,6 +48,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Block unverified users
+    if (!user.emailVerified) {
+      return NextResponse.json(
+        {
+          error: "Please verify your email address before logging in.",
+          requiresVerification: true,
+          email: normalizedEmail,
+        },
+        { status: 403 }
+      );
+    }
+
     const token = signToken({
       userId: user.id,
       email: user.email,

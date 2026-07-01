@@ -63,6 +63,11 @@ export function LoginForm() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
+        // Unverified user — redirect to verification page
+        if (json.requiresVerification && json.email) {
+          window.location.href = `/verify-email?email=${encodeURIComponent(json.email)}`;
+          return;
+        }
         setServerError(json.error || "Invalid email or password. Please try again.");
         return;
       }

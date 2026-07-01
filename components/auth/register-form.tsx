@@ -65,9 +65,10 @@ export function RegisterForm() {
         setServerError(json.error || "Something went wrong. Please try again.");
         return;
       }
+      // Always redirect to email verification — account is NOT active until verified
       setSuccess(true);
       setTimeout(() => {
-        window.location.href = "/dashboard";
+        window.location.href = `/verify-email?email=${encodeURIComponent(data.email)}`;
       }, 600);
     } catch {
       setServerError("Something went wrong. Please try again.");
@@ -84,8 +85,8 @@ export function RegisterForm() {
         <div className="w-16 h-16 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center mx-auto mb-4">
           <CheckCircle className="w-8 h-8 text-emerald-500" />
         </div>
-        <h3 className="font-display font-bold text-xl text-black mb-2">Account created!</h3>
-        <p className="text-black/50 text-sm mb-4">Check your email to verify your address.</p>
+        <h3 className="font-display font-bold text-xl text-black mb-2">Check your email!</h3>
+        <p className="text-black/50 text-sm mb-4">We sent a verification code to your email. Redirecting…</p>
         <Link href="/login" className="text-sm text-blue-600 font-semibold hover:text-blue-700 transition-colors">
           Go to sign in →
         </Link>
