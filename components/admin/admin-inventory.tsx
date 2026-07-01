@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Boxes, Upload, AlertTriangle, CheckCircle2, Loader2,
   RefreshCw, Download, FileText, ToggleLeft, ToggleRight,
-  QrCode, Type, Image as ImageIcon, X, Eye,
+  QrCode, Type, Image as ImageIcon, X, Eye, Info,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -14,11 +14,12 @@ type Stock = {
   perPlan: { planId: string; name: string; carrier: string; available: number; low: boolean }[];
   lowStock: { planId: string; name: string; carrier: string; available: number }[];
   threshold: number;
+  autoCarrierStatus?: Record<string, boolean>;
 };
 
-type UploadResult = {
+type ChunkResult = {
   inserted: number; failed: number; total: number; batchId: string;
-  errors: string[]; failedCsv: string | null;
+  errors: string[]; failedCsv: string | null; chunk: number; totalChunks: number;
 };
 
 type Plan = { id: string; name: string; carrierId: string };
@@ -32,12 +33,14 @@ const CARRIERS: { id: Carrier; label: string }[] = [
   { id: "MVNO", label: "MVNO" },
 ];
 
-// ─── CSV Template ──────────────────────────────────────────────────────────────
+const CHUNK_SIZE = 50; // rows per request — keeps each request under 10s
 
+// ─── CSV Template ──────────────────────────────────────────────────────────────
+// ICCID is optional — if blank, system auto-generates a unique ID.
 const CSV_TEMPLATE = `carrier,iccid,lpaActivationString,planId,country,expiresAt
-TMOBILE,8910000000000000001,"LPA:1$rsp.example.com$ABC-123",,US,
-VERIZON,8910000000000000002,"LPA:1$rsp.example.com$DEF-456",,US,
-ATT,8910000000000000003,"LPA:1$rsp.example.com$GHI-789",,US,`;
+TMOBILE,,"LPA:1$rsp.example.com$ABC-123-DEF",,US,
+VERIZON,,"LPA:1$rsp.example.com$DEF-456-GHI",,US,
+ATT,,"LPA:1$rsp.example.com$GHI-789-JKL",,US,`;
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -57,7 +60,19 @@ export function AdminInventoryContent() {
         fetch("/api/admin/plans", { cache: "no-store" }),
         fetch("/api/admin/inventory/carrier-status", { cache: "no-store" }),
       ]);
-      if (stockRes.ok) setStock(await stockRes.json());
+      if (stockRes.ok) {
+        const d = await stockRes.json();
+        setStock(d);
+        // Sync auto carrier status if manual override not set
+        if (d.autoCarrierStatus) {
+          setCarrierStatus((prev) => {
+            const merged: CarrierStatusMap = { ...d.autoCarrierStatus };
+            // Keep any manually-set overrides from the persistent store
+            Object.keys(prev).forEach((k) => { merged[k] = prev[k]; });
+            return merged;
+          });
+        }
+      }
       if (plansRes.ok) {
         const d = await plansRes.json();
         setPlans(Array.isArray(d) ? d : (d.plans ?? []));
@@ -106,27 +121,30 @@ export function AdminInventoryContent() {
         </button>
       </div>
 
-      {/* Stock totals */}
+      {/* Stock totals — live from DB */}
       <div className="grid grid-cols-3 gap-4">
         {(["AVAILABLE", "RESERVED", "SOLD"] as const).map((s) => (
           <div key={s} className="bg-white rounded-2xl border border-black/[0.06] p-5">
             <div className="text-xs text-black/40 uppercase tracking-wide">{s.charAt(0) + s.slice(1).toLowerCase()}</div>
             <div className="font-display text-3xl font-black text-black mt-1">
-              {stock?.totals[s] ?? "—"}
+              {stock ? stock.totals[s] : "—"}
             </div>
+            <div className="text-xs text-black/30 mt-1">live from database</div>
           </div>
         ))}
       </div>
 
-      {/* Carrier Status Toggles */}
+      {/* Carrier Status — auto + manual override */}
       <div className="bg-white rounded-2xl border border-black/[0.06] p-5">
         <h2 className="font-display font-bold text-black mb-1">Carrier Availability</h2>
         <p className="text-xs text-black/40 mb-4">
-          Mark a carrier as Out of Stock to block purchases on all their plans immediately.
+          Status is auto-detected from inventory. Toggle manually to override.
+          A carrier is automatically marked Out of Stock when all its plans reach 0 available eSIMs.
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {CARRIERS.map(({ id, label }) => {
             const isOut = carrierStatus[id] === true;
+            const autoOut = stock?.autoCarrierStatus?.[id] === true;
             const loading = togglingCarrier === id;
             return (
               <button
@@ -134,15 +152,16 @@ export function AdminInventoryContent() {
                 onClick={() => toggleCarrier(id, isOut)}
                 disabled={loading}
                 className={`flex items-center justify-between p-3 rounded-xl border-2 transition-all ${
-                  isOut
-                    ? "border-red-300 bg-red-50"
-                    : "border-emerald-300 bg-emerald-50"
+                  isOut ? "border-red-300 bg-red-50" : "border-emerald-300 bg-emerald-50"
                 } disabled:opacity-50`}>
                 <div>
                   <div className="font-semibold text-sm text-black">{label}</div>
                   <div className={`text-xs font-medium mt-0.5 ${isOut ? "text-red-600" : "text-emerald-600"}`}>
                     {isOut ? "Out of Stock" : "In Stock"}
                   </div>
+                  {autoOut && !isOut && (
+                    <div className="text-xs text-amber-500 mt-0.5">auto: empty</div>
+                  )}
                 </div>
                 {loading ? (
                   <Loader2 className="w-5 h-5 animate-spin text-black/40" />
@@ -171,27 +190,40 @@ export function AdminInventoryContent() {
         </div>
       )}
 
-      {/* Per-plan availability */}
-      {stock && stock.perPlan.length > 0 && (
-        <div className="bg-white rounded-2xl border border-black/[0.06] overflow-hidden">
-          <div className="px-5 py-3 border-b border-black/5 text-sm font-semibold text-black/60">
-            Availability by plan
-          </div>
+      {/* Per-plan availability — live counts from InventoryItem table */}
+      <div className="bg-white rounded-2xl border border-black/[0.06] overflow-hidden">
+        <div className="px-5 py-3 border-b border-black/5 flex items-center justify-between">
+          <span className="text-sm font-semibold text-black/60">Availability by Plan</span>
+          <span className="text-xs text-black/30 flex items-center gap-1">
+            <Info className="w-3 h-3" /> Live from database · status = AVAILABLE only
+          </span>
+        </div>
+        {stock && stock.perPlan.length > 0 ? (
           <table className="w-full text-sm">
             <tbody>
               {stock.perPlan.map((p) => (
                 <tr key={p.planId} className="border-b border-black/[0.03] last:border-0">
-                  <td className="px-5 py-2.5 text-black/40">{p.carrier}</td>
+                  <td className="px-5 py-2.5 text-black/40 w-24">{p.carrier}</td>
                   <td className="px-5 py-2.5 font-medium text-black">{p.name}</td>
                   <td className="px-5 py-2.5 text-right">
-                    <span className={p.low ? "text-amber-600 font-bold" : "text-black"}>{p.available}</span>
+                    {p.available === 0 ? (
+                      <span className="text-red-500 font-bold">0 — Out of Stock</span>
+                    ) : p.low ? (
+                      <span className="text-amber-600 font-bold">{p.available} — Low</span>
+                    ) : (
+                      <span className="text-emerald-600 font-semibold">{p.available}</span>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-      )}
+        ) : (
+          <div className="px-5 py-8 text-center text-sm text-black/30">
+            No inventory uploaded yet. Use the upload tools below to add eSIMs.
+          </div>
+        )}
+      </div>
 
       {/* Upload Tabs */}
       <div className="bg-white rounded-2xl border border-black/[0.06] overflow-hidden">
@@ -214,12 +246,8 @@ export function AdminInventoryContent() {
         </div>
 
         <div className="p-5">
-          {activeTab === "bulk" && (
-            <BulkUpload plans={plans} onSuccess={loadAll} />
-          )}
-          {activeTab === "single" && (
-            <SingleEsimUpload plans={plans} onSuccess={loadAll} />
-          )}
+          {activeTab === "bulk" && <BulkUpload plans={plans} onSuccess={loadAll} />}
+          {activeTab === "single" && <SingleEsimUpload plans={plans} onSuccess={loadAll} />}
         </div>
       </div>
     </div>
@@ -231,18 +259,21 @@ export function AdminInventoryContent() {
 function BulkUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () => void }) {
   const [csv, setCsv] = useState("");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<UploadResult | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [aggregated, setAggregated] = useState<{
+    inserted: number; failed: number; total: number;
+    errors: string[]; failedCsvs: string[];
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  void plans; // plans available for future plan-select UI
+  void plans;
 
   function downloadTemplate() {
     const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "simkuu-inventory-template.csv"; a.click();
+    const a = document.createElement("a"); a.href = url; a.download = "simkuu-inventory-template.csv"; a.click();
     URL.revokeObjectURL(url);
   }
 
@@ -250,8 +281,7 @@ function BulkUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () => void
     const bytes = atob(base64);
     const blob = new Blob([bytes], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "simkuu-failed-rows.csv"; a.click();
+    const a = document.createElement("a"); a.href = url; a.download = "simkuu-failed-rows.csv"; a.click();
     URL.revokeObjectURL(url);
   }
 
@@ -261,36 +291,91 @@ function BulkUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () => void
     reader.readAsText(f);
   };
 
+  /** Parse CSV header + rows in the browser (mirrors server parser for row count) */
+  function splitCsvToChunks(raw: string): Record<string, string>[][] {
+    const lines = raw.trim().split(/\r?\n/).filter(Boolean);
+    if (lines.length < 2) return [];
+    const header = lines[0];
+    const dataLines = lines.slice(1);
+    const chunks: Record<string, string>[][] = [];
+    for (let i = 0; i < dataLines.length; i += CHUNK_SIZE) {
+      const slice = dataLines.slice(i, i + CHUNK_SIZE);
+      // Re-attach header so server can parse normally
+      const chunkCsv = [header, ...slice].join("\n");
+      chunks.push([{ __rawChunk: chunkCsv }]);
+    }
+    return chunks;
+  }
+
   const upload = async () => {
     if (!csv.trim()) { setError("Paste CSV or choose a file first."); return; }
-    setBusy(true); setError(null); setResult(null);
-    try {
-      const r = await fetch("/api/admin/inventory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ csv }),
-      });
-      const data = await r.json();
-      if (!r.ok) setError(data.error ?? "Upload failed");
-      else { setResult(data); setCsv(""); onSuccess(); }
-    } catch {
-      setError("Upload failed — network error.");
-    } finally {
-      setBusy(false);
+    setBusy(true); setError(null); setAggregated(null);
+
+    // Split into header + data lines, then chunk
+    const lines = csv.trim().split(/\r?\n/).filter(Boolean);
+    if (lines.length < 2) { setError("CSV must have a header row and at least one data row."); setBusy(false); return; }
+    const header = lines[0];
+    const dataLines = lines.slice(1);
+    const totalChunks = Math.ceil(dataLines.length / CHUNK_SIZE);
+
+    let totalInserted = 0, totalFailed = 0, totalRows = 0;
+    const allErrors: string[] = [];
+    const allFailedCsvs: string[] = [];
+
+    setProgress({ done: 0, total: totalChunks });
+
+    for (let c = 0; c < totalChunks; c++) {
+      const slice = dataLines.slice(c * CHUNK_SIZE, (c + 1) * CHUNK_SIZE);
+      const chunkCsv = [header, ...slice].join("\n");
+
+      try {
+        const r = await fetch("/api/admin/inventory", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ csv: chunkCsv, chunk: c + 1, totalChunks }),
+        });
+
+        let data: ChunkResult;
+        try {
+          data = await r.json();
+        } catch {
+          allErrors.push(`Chunk ${c + 1}: Server returned invalid response`);
+          setProgress({ done: c + 1, total: totalChunks });
+          continue;
+        }
+
+        if (!r.ok) {
+          allErrors.push(`Chunk ${c + 1}: ${data.error ?? "Upload failed"}`);
+        } else {
+          totalInserted += data.inserted ?? 0;
+          totalFailed += data.failed ?? 0;
+          totalRows += data.total ?? 0;
+          if (data.errors) allErrors.push(...data.errors);
+          if (data.failedCsv) allFailedCsvs.push(data.failedCsv);
+        }
+      } catch {
+        allErrors.push(`Chunk ${c + 1}: Network error — check your connection`);
+      }
+
+      setProgress({ done: c + 1, total: totalChunks });
     }
+
+    setAggregated({ inserted: totalInserted, failed: totalFailed, total: totalRows, errors: allErrors, failedCsvs: allFailedCsvs });
+    if (totalInserted > 0) { setCsv(""); onSuccess(); }
+    setBusy(false);
+    setProgress(null);
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="font-display font-bold text-black">Bulk Upload</h2>
-          <p className="text-xs text-black/40 mt-0.5">
-            Required columns: <code className="font-mono bg-black/5 px-1 rounded">carrier</code>{" "}
-            (TMOBILE / VERIZON / ATT / MVNO),{" "}
-            <code className="font-mono bg-black/5 px-1 rounded">iccid</code>,{" "}
+          <h2 className="font-display font-bold text-black">Bulk Upload via CSV</h2>
+          <p className="text-xs text-black/40 mt-0.5 max-w-lg">
+            Required: <code className="font-mono bg-black/5 px-1 rounded">carrier</code> (TMOBILE / VERIZON / ATT / MVNO) and{" "}
             <code className="font-mono bg-black/5 px-1 rounded">lpaActivationString</code>.{" "}
-            Quote fields containing commas. QR codes auto-generated per row.
+            <strong>ICCID is optional</strong> — leave blank and the system auto-generates one.
+            Large files are uploaded in chunks of {CHUNK_SIZE} rows automatically.
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
@@ -316,6 +401,7 @@ function BulkUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () => void
         }`}>
         <Upload className="w-6 h-6 text-black/30 mx-auto mb-2" />
         <p className="text-sm text-black/50">Drag & drop a CSV file, or <span className="text-blue-600 font-medium">click to browse</span></p>
+        <p className="text-xs text-black/30 mt-1">Works with 10, 100, or 1,000+ rows</p>
         <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
       </div>
@@ -324,31 +410,57 @@ function BulkUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () => void
         placeholder={CSV_TEMPLATE}
         className="w-full font-mono text-xs p-3 rounded-xl border border-black/10 outline-none focus:border-blue-500 resize-y" />
 
+      {/* Progress bar */}
+      {progress && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-black/50">
+            <span className="flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading chunk {progress.done} of {progress.total}…</span>
+            <span>{Math.round((progress.done / progress.total) * 100)}%</span>
+          </div>
+          <div className="w-full bg-black/5 rounded-full h-1.5">
+            <div
+              className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+              style={{ width: `${(progress.done / progress.total) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-3">
         <button onClick={upload} disabled={busy}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-black text-white text-sm font-semibold hover:bg-black/80 disabled:opacity-60 transition-colors">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-          {busy ? "Uploading & generating QR codes…" : "Import inventory"}
+          {busy ? "Uploading…" : "Import inventory"}
         </button>
         {error && <span className="text-sm text-red-500">{error}</span>}
       </div>
 
-      {result && (
-        <div className={`rounded-xl border p-4 text-sm ${result.failed > 0 && result.inserted === 0 ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}`}>
-          <div className={`flex items-center gap-2 font-semibold mb-2 ${result.failed > 0 && result.inserted === 0 ? "text-red-700" : "text-emerald-700"}`}>
+      {aggregated && (
+        <div className={`rounded-xl border p-4 text-sm ${
+          aggregated.inserted === 0 && aggregated.failed > 0
+            ? "border-red-200 bg-red-50"
+            : aggregated.failed > 0
+              ? "border-amber-200 bg-amber-50"
+              : "border-emerald-200 bg-emerald-50"
+        }`}>
+          <div className="flex items-center gap-2 font-semibold mb-2">
             <CheckCircle2 className="w-4 h-4" />
-            {result.inserted} inserted · {result.failed} failed · {result.total} total
+            <span className="text-emerald-700">{aggregated.inserted} inserted</span>
+            {aggregated.failed > 0 && <span className="text-red-600">· {aggregated.failed} failed</span>}
+            <span className="text-black/40 font-normal">· {aggregated.total} total rows</span>
           </div>
-          <div className="text-xs text-black/40 mb-2">Batch: {result.batchId}</div>
-          {result.errors.length > 0 && (
-            <ul className="text-xs text-amber-700 list-disc pl-4 space-y-0.5 mb-3">
-              {result.errors.map((e, i) => <li key={i}>{e}</li>)}
-            </ul>
+          {aggregated.errors.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs font-semibold text-black/50 mb-1">Failure reasons:</p>
+              <ul className="text-xs text-red-700 list-disc pl-4 space-y-0.5 max-h-40 overflow-y-auto">
+                {aggregated.errors.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            </div>
           )}
-          {result.failedCsv && (
+          {aggregated.failedCsvs.length > 0 && (
             <button
-              onClick={() => downloadFailedCsv(result.failedCsv!)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-xs font-medium text-amber-700 hover:bg-amber-50 transition-colors">
+              onClick={() => downloadFailedCsv(aggregated.failedCsvs[0])}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-red-300 text-xs font-medium text-red-700 hover:bg-red-50 transition-colors">
               <Download className="w-3.5 h-3.5" /> Download failed rows CSV
             </button>
           )}
@@ -368,12 +480,13 @@ function SingleEsimUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () =
   const [planId, setPlanId] = useState("");
   const [confirmationCode, setConfirmationCode] = useState("");
   const [busy, setBusy] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [success, setSuccess] = useState<{ iccid: string; autoIccid: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // QR image decode state
+  // QR decode state
   const [qrFile, setQrFile] = useState<File | null>(null);
   const [qrPreview, setQrPreview] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null); // original QR image to store
   const [decodedLpa, setDecodedLpa] = useState<string | null>(null);
   const [decoding, setDecoding] = useState(false);
   const [decodeError, setDecodeError] = useState<string | null>(null);
@@ -381,28 +494,31 @@ function SingleEsimUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () =
 
   const reset = () => {
     setIccid(""); setLpa(""); setConfirmationCode("");
-    setQrFile(null); setQrPreview(null); setDecodedLpa(null);
-    setDecodeError(null); setError(null); setSuccess(false);
+    setQrFile(null); setQrPreview(null); setQrDataUrl(null); setDecodedLpa(null);
+    setDecodeError(null); setError(null); setSuccess(null);
   };
 
   const decodeQrImage = async (file: File) => {
     setDecoding(true); setDecodeError(null); setDecodedLpa(null);
     const url = URL.createObjectURL(file);
     setQrPreview(url);
+
+    // Convert file to base64 data URL for storage
+    const reader = new FileReader();
+    reader.onload = () => setQrDataUrl(String(reader.result ?? ""));
+    reader.readAsDataURL(file);
+
     try {
-      // Draw to canvas and read pixels
       const img = await loadImage(url);
       const canvas = document.createElement("canvas");
       canvas.width = img.width; canvas.height = img.height;
       const ctx = canvas.getContext("2d")!;
       ctx.drawImage(img, 0, 0);
       const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-      // Dynamic import jsqr
       const { default: jsQR } = await import("jsqr");
       const code = jsQR(data, width, height);
       if (!code) {
-        setDecodeError("Could not decode QR code from this image. Try a clearer photo or paste the LPA string manually.");
+        setDecodeError("Could not decode QR code. Try a clearer image or paste the LPA string manually below.");
       } else {
         setDecodedLpa(code.data);
         setLpa(code.data);
@@ -423,23 +539,31 @@ function SingleEsimUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () =
     });
 
   const submit = async () => {
-    if (!iccid.trim()) { setError("ICCID is required"); return; }
     const lpaToSend = method === "qr" ? (decodedLpa ?? lpa) : lpa;
-    if (!lpaToSend.trim()) { setError("LPA Activation String is required"); return; }
+    if (!lpaToSend.trim()) { setError("LPA Activation String is required (or upload a QR image to decode it automatically)"); return; }
 
-    setBusy(true); setError(null); setSuccess(false);
+    setBusy(true); setError(null); setSuccess(null);
     try {
       const r = await fetch("/api/admin/inventory/esim", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          carrier, iccid: iccid.trim(), lpaActivationString: lpaToSend.trim(),
-          planId: planId || null, confirmationCode: confirmationCode || null,
+          carrier,
+          iccid: iccid.trim() || null, // null = auto-generate
+          lpaActivationString: lpaToSend.trim(),
+          planId: planId || null,
+          confirmationCode: confirmationCode || null,
+          // For QR uploads: send the original image so customer receives exactly what was uploaded
+          qrCodeDataUrl: method === "qr" ? qrDataUrl : null,
         }),
       });
       const data = await r.json();
       if (!r.ok) setError(data.error ?? "Failed to add eSIM");
-      else { setSuccess(true); reset(); onSuccess(); }
+      else {
+        setSuccess({ iccid: data.iccid, autoIccid: data.autoIccid });
+        reset();
+        onSuccess();
+      }
     } catch {
       setError("Network error — please try again.");
     } finally {
@@ -451,13 +575,15 @@ function SingleEsimUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () =
     <div className="space-y-5">
       <div>
         <h2 className="font-display font-bold text-black mb-1">Add Single eSIM</h2>
-        <p className="text-xs text-black/40">Choose your input method below.</p>
+        <p className="text-xs text-black/40">
+          ICCID is <strong>optional</strong> — leave blank and the system assigns a unique ID automatically.
+        </p>
       </div>
 
       {/* Method picker */}
-      <div className="flex gap-3">
+      <div className="flex gap-3 flex-wrap">
         {([
-          { key: "lpa", label: "LPA Activation String", icon: <Type className="w-4 h-4" /> },
+          { key: "lpa", label: "Enter LPA String", icon: <Type className="w-4 h-4" /> },
           { key: "qr", label: "Upload QR Image", icon: <ImageIcon className="w-4 h-4" /> },
         ] as const).map((m) => (
           <button key={m.key} onClick={() => { setMethod(m.key); reset(); }}
@@ -479,16 +605,18 @@ function SingleEsimUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () =
           </select>
         </div>
         <div>
-          <label className="block text-xs font-semibold text-black/60 mb-1">ICCID *</label>
+          <label className="block text-xs font-semibold text-black/60 mb-1">
+            ICCID <span className="text-black/30 font-normal">(optional — auto-generated if blank)</span>
+          </label>
           <input value={iccid} onChange={(e) => setIccid(e.target.value)}
-            placeholder="89100000000000000XX"
-            className="w-full px-3 py-2 rounded-xl border border-black/10 text-sm outline-none focus:border-blue-500 font-mono" />
+            placeholder="Leave blank to auto-generate"
+            className="w-full px-3 py-2 rounded-xl border border-black/10 text-sm outline-none focus:border-blue-500 font-mono placeholder:font-sans" />
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-xs font-semibold text-black/60 mb-1">Plan (optional)</label>
+          <label className="block text-xs font-semibold text-black/60 mb-1">Plan <span className="text-black/30 font-normal">(optional)</span></label>
           <select value={planId} onChange={(e) => setPlanId(e.target.value)}
             className="w-full px-3 py-2 rounded-xl border border-black/10 text-sm outline-none focus:border-blue-500 bg-white">
             <option value="">No plan assigned</option>
@@ -496,7 +624,7 @@ function SingleEsimUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () =
           </select>
         </div>
         <div>
-          <label className="block text-xs font-semibold text-black/60 mb-1">Confirmation Code (optional)</label>
+          <label className="block text-xs font-semibold text-black/60 mb-1">Confirmation Code <span className="text-black/30 font-normal">(optional)</span></label>
           <input value={confirmationCode} onChange={(e) => setConfirmationCode(e.target.value)}
             placeholder="e.g. 12345678"
             className="w-full px-3 py-2 rounded-xl border border-black/10 text-sm outline-none focus:border-blue-500 font-mono" />
@@ -510,7 +638,7 @@ function SingleEsimUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () =
           <input value={lpa} onChange={(e) => setLpa(e.target.value)}
             placeholder="LPA:1$rsp.example.com$ACTIVATION-CODE"
             className="w-full px-3 py-2 rounded-xl border border-black/10 text-sm outline-none focus:border-blue-500 font-mono" />
-          <p className="text-xs text-black/30 mt-1">A QR code will be automatically generated from this string.</p>
+          <p className="text-xs text-black/30 mt-1">A QR code is automatically generated from this string and sent to the customer.</p>
         </div>
       )}
 
@@ -523,7 +651,8 @@ function SingleEsimUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () =
               onClick={() => qrFileRef.current?.click()}
               className="border-2 border-dashed border-black/10 hover:border-blue-300 rounded-xl p-6 text-center cursor-pointer transition-colors">
               <QrCode className="w-6 h-6 text-black/30 mx-auto mb-2" />
-              <p className="text-sm text-black/50">Click to upload QR image (PNG / JPG / WEBP)</p>
+              <p className="text-sm text-black/50">Click to upload QR image <span className="text-black/30">(PNG / JPG / WEBP)</span></p>
+              <p className="text-xs text-black/30 mt-1">LPA string is decoded automatically. Original image is stored and sent to customer.</p>
               <input ref={qrFileRef} type="file" accept="image/*" className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) { setQrFile(f); decodeQrImage(f); } }} />
             </div>
@@ -535,37 +664,37 @@ function SingleEsimUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () =
             </div>
           )}
 
-          {qrPreview && (
-            <div className="flex items-start gap-4">
+          {qrPreview && !decoding && (
+            <div className="flex items-start gap-4 p-3 rounded-xl bg-black/[0.02] border border-black/5">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={qrPreview} alt="QR preview" className="w-24 h-24 rounded-xl border border-black/10 object-contain bg-white" />
+              <img src={qrPreview} alt="QR preview" className="w-20 h-20 rounded-lg border border-black/10 object-contain bg-white flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 {decodedLpa && (
-                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 mb-2">
                     <div className="flex items-center gap-1.5 text-emerald-700 text-xs font-semibold mb-1">
-                      <Eye className="w-3.5 h-3.5" /> Decoded LPA string
+                      <Eye className="w-3.5 h-3.5" /> Decoded successfully
                     </div>
                     <p className="font-mono text-xs text-emerald-800 break-all">{decodedLpa}</p>
                   </div>
                 )}
                 {decodeError && (
-                  <div className="p-3 rounded-xl bg-red-50 border border-red-200">
-                    <p className="text-xs text-red-600">{decodeError}</p>
-                    <p className="text-xs text-black/40 mt-1">You can paste the LPA string manually below.</p>
+                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 mb-2">
+                    <p className="text-xs text-amber-700">{decodeError}</p>
                   </div>
                 )}
+                <p className="text-xs text-black/40">Original QR image will be stored and delivered to the customer exactly as uploaded.</p>
               </div>
-              <button onClick={() => { setQrFile(null); setQrPreview(null); setDecodedLpa(null); setDecodeError(null); }}
-                className="p-1.5 rounded-lg hover:bg-black/5">
+              <button onClick={() => { setQrFile(null); setQrPreview(null); setQrDataUrl(null); setDecodedLpa(null); setDecodeError(null); }}
+                className="p-1.5 rounded-lg hover:bg-black/5 flex-shrink-0">
                 <X className="w-4 h-4 text-black/40" />
               </button>
             </div>
           )}
 
-          {/* Manual LPA override if decode failed */}
+          {/* Manual LPA fallback if decode failed */}
           {(decodeError || (qrFile && !decodedLpa && !decoding)) && (
             <div>
-              <label className="block text-xs font-semibold text-black/60 mb-1">LPA String (manual entry)</label>
+              <label className="block text-xs font-semibold text-black/60 mb-1">LPA String <span className="text-black/30">(paste manually if decode failed)</span></label>
               <input value={lpa} onChange={(e) => setLpa(e.target.value)}
                 placeholder="LPA:1$rsp.example.com$ACTIVATION-CODE"
                 className="w-full px-3 py-2 rounded-xl border border-black/10 text-sm outline-none focus:border-blue-500 font-mono" />
@@ -575,7 +704,7 @@ function SingleEsimUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () =
       )}
 
       {/* Submit */}
-      <div className="flex items-center gap-3 pt-1">
+      <div className="flex items-center gap-3 pt-1 flex-wrap">
         <button onClick={submit} disabled={busy}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-black text-white text-sm font-semibold hover:bg-black/80 disabled:opacity-60 transition-colors">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
@@ -584,7 +713,9 @@ function SingleEsimUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () =
         {error && <span className="text-sm text-red-500">{error}</span>}
         {success && (
           <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
-            <CheckCircle2 className="w-4 h-4" /> eSIM added successfully
+            <CheckCircle2 className="w-4 h-4" />
+            eSIM added · ICCID: <code className="font-mono text-xs">{success.iccid}</code>
+            {success.autoIccid && <span className="text-xs text-black/30">(auto-generated)</span>}
           </span>
         )}
       </div>

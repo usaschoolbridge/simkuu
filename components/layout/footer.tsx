@@ -167,7 +167,8 @@ export function Footer() {
           <div className="flex items-center gap-1 text-xs text-black/30">
             <span>Made with</span>
             <span className="text-red-400">♥</span>
-            <span>in the USA</span>
+            <span>in India</span>
+            <span>🇮🇳</span>
           </div>
           <a
             href="https://simkuu.com"

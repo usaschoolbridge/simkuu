@@ -1,4 +1,5 @@
 export const runtime = "nodejs";
+export const maxDuration = 60; // Vercel max for Pro; hobby gets 10s but better than default
 
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
@@ -18,6 +19,7 @@ const CARRIERS: Carrier[] = ["TMOBILE", "VERIZON", "ATT", "MVNO"];
 /**
  * GET /api/admin/inventory
  * Stock summary per plan + carrier, with low-stock flags.
+ * All values come from the real InventoryItem table — no hardcoded values.
  */
 export async function GET() {
   if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
@@ -34,40 +36,65 @@ export async function GET() {
   const totals = { AVAILABLE: 0, RESERVED: 0, SOLD: 0 };
   for (const r of byStatus) totals[r.status as keyof typeof totals] = r._count._all;
 
-  const perPlan = plans.map((p: (typeof plans)[number]) => {
-    const available = byPlan.find((b: (typeof byPlan)[number]) => b.planId === p.id && b.status === "AVAILABLE")?._count._all ?? 0;
+  const perPlan = plans.map((p) => {
+    const available = byPlan.find((b) => b.planId === p.id && b.status === "AVAILABLE")?._count._all ?? 0;
     return { planId: p.id, name: p.name, carrier: p.carrierId, available, low: available <= LOW_STOCK_THRESHOLD };
   });
+
+  // Auto-detect carrier out-of-stock: carrier is out if ALL its plans have 0 available
+  const autoCarrierStatus: Record<string, boolean> = {};
+  const allCarrierIds = [...new Set(plans.map((p) => p.carrierId))];
+  for (const carrierId of allCarrierIds) {
+    const carrierPlans = perPlan.filter((p) => p.carrier === carrierId);
+    autoCarrierStatus[carrierId] = carrierPlans.length > 0 && carrierPlans.every((p) => p.available === 0);
+  }
 
   return NextResponse.json({
     totals,
     perPlan,
-    lowStock: perPlan.filter((p: (typeof perPlan)[number]) => p.low),
+    lowStock: perPlan.filter((p) => p.low),
     threshold: LOW_STOCK_THRESHOLD,
+    autoCarrierStatus, // frontend can use this to show auto status
   });
 }
 
 /**
  * POST /api/admin/inventory
- * Bulk upload LPA inventory. Body: { csv: "..." }.
- * Each row: carrier, iccid, lpaActivationString, planId?, country?, expiresAt?.
- * Generates QR code server-side for each valid row.
- * Returns per-row results with downloadable failed-rows CSV.
+ * Bulk upload LPA inventory. Accepts chunked batches to avoid timeouts.
+ * Body: { csv?: string, rows?: Record<string,string>[], chunk?: number, totalChunks?: number }
+ *
+ * Rules:
+ * - carrier is required (TMOBILE / VERIZON / ATT / MVNO)
+ * - iccid is OPTIONAL — auto-generated as UNKNOWN-{timestamp}-{i} if missing
+ * - lpaActivationString is required and must start with LPA:
+ * - Duplicate ICCIDs are skipped with a clear reason
+ * - QR code is generated server-side for each valid row
  */
 export async function POST(req: NextRequest) {
   if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
   if (!(await requireAdmin())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   let rows: Record<string, string>[];
+  let chunk = 1;
+  let totalChunks = 1;
+
   try {
     const body = await req.json();
-    rows = Array.isArray(body.rows) ? body.rows : body.csv ? parseCsvRobust(body.csv) : [];
+    chunk = body.chunk ?? 1;
+    totalChunks = body.totalChunks ?? 1;
+    rows = Array.isArray(body.rows)
+      ? body.rows
+      : body.csv
+        ? parseCsvRobust(body.csv)
+        : [];
   } catch {
-    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid body — expected JSON with csv or rows field" }, { status: 400 });
   }
+
   if (rows.length === 0) return NextResponse.json({ error: "No rows provided" }, { status: 400 });
 
   const batchId = `batch_${Date.now()}`;
+  const ts = Date.now();
 
   type FailedRow = { row: number; iccid: string; reason: string; rawLine: string };
   const failed: FailedRow[] = [];
@@ -76,50 +103,74 @@ export async function POST(req: NextRequest) {
     planId: string | null; country: string; expiresAt: Date | null; batchId: string;
   }[] = [];
 
-  // Check which ICCIDs already exist
+  // Pre-fetch existing ICCIDs for de-duplication (only for rows that have an ICCID)
   const candidateIccids = rows
     .map((r) => String(r.iccid ?? "").trim())
     .filter(Boolean);
-  const existingItems = await db.inventoryItem.findMany({
-    where: { iccid: { in: candidateIccids } },
-    select: { iccid: true },
-  });
-  const existingIccidSet = new Set(existingItems.map((e: { iccid: string }) => e.iccid));
+
+  const existingIccidSet = new Set<string>();
+  if (candidateIccids.length > 0) {
+    const existing = await db.inventoryItem.findMany({
+      where: { iccid: { in: candidateIccids } },
+      select: { iccid: true },
+    });
+    for (const e of existing) existingIccidSet.add(e.iccid);
+  }
+
+  // Also track ICCIDs we're about to insert (within this batch) to catch intra-batch dupes
+  const batchIccidSet = new Set<string>();
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
-    const rowNum = i + 2; // 1-based + header
+    const rowNum = i + 2; // 1-based + header row
     const rawLine = Object.values(r).join(",");
 
     const carrier = String(r.carrier ?? "").toUpperCase().trim() as Carrier;
-    const iccid = String(r.iccid ?? "").trim();
+    const rawIccid = String(r.iccid ?? "").trim();
     const lpa = String(r.lpaActivationString ?? r.lpa ?? "").trim();
 
+    // Validate carrier
     if (!CARRIERS.includes(carrier)) {
-      failed.push({ row: rowNum, iccid, reason: `Invalid carrier "${r.carrier}" — must be TMOBILE, VERIZON, ATT, or MVNO`, rawLine });
+      failed.push({
+        row: rowNum, iccid: rawIccid || "(missing)",
+        reason: `Invalid carrier "${r.carrier}" — must be TMOBILE, VERIZON, ATT, or MVNO`,
+        rawLine,
+      });
       continue;
     }
-    if (!iccid) {
-      failed.push({ row: rowNum, iccid: "(missing)", reason: "Missing ICCID", rawLine });
-      continue;
-    }
+
+    // Validate LPA (required)
     if (!lpa) {
-      failed.push({ row: rowNum, iccid, reason: "Missing lpaActivationString", rawLine });
+      failed.push({ row: rowNum, iccid: rawIccid || "(missing)", reason: "Missing lpaActivationString", rawLine });
       continue;
     }
     if (!lpa.startsWith("LPA:")) {
-      failed.push({ row: rowNum, iccid, reason: `LPA string must start with "LPA:" — got "${lpa.slice(0, 20)}"`, rawLine });
+      failed.push({
+        row: rowNum, iccid: rawIccid || "(missing)",
+        reason: `LPA string must start with "LPA:" — got "${lpa.slice(0, 30)}"`,
+        rawLine,
+      });
       continue;
     }
+
+    // ICCID: optional — auto-generate if missing
+    const iccid = rawIccid || `UNKNOWN-${ts}-${String(i).padStart(6, "0")}`;
+
+    // Duplicate check
     if (existingIccidSet.has(iccid)) {
       failed.push({ row: rowNum, iccid, reason: "Duplicate — ICCID already in inventory", rawLine });
       continue;
     }
+    if (batchIccidSet.has(iccid)) {
+      failed.push({ row: rowNum, iccid, reason: "Duplicate — ICCID appears more than once in this upload", rawLine });
+      continue;
+    }
+    batchIccidSet.add(iccid);
 
-    // Generate QR code
+    // Generate QR code from LPA string
     let qrCode: string;
     try {
-      qrCode = await QRCode.toDataURL(lpa, { width: 300, margin: 2 });
+      qrCode = await QRCode.toDataURL(lpa, { width: 256, margin: 1, errorCorrectionLevel: "M" });
     } catch {
       failed.push({ row: rowNum, iccid, reason: "Failed to generate QR code", rawLine });
       continue;
@@ -130,8 +181,8 @@ export async function POST(req: NextRequest) {
 
     valid.push({
       carrier, iccid, lpaActivationString: lpa, qrCode,
-      planId: r.planId ? String(r.planId).trim() : null,
-      country: r.country ? String(r.country).trim() : "US",
+      planId: r.planId ? String(r.planId).trim() || null : null,
+      country: r.country ? String(r.country).trim() || "US" : "US",
       expiresAt: exp && !isNaN(exp.getTime()) ? exp : null,
       batchId,
     });
@@ -139,26 +190,30 @@ export async function POST(req: NextRequest) {
 
   let inserted = 0;
   if (valid.length > 0) {
-    const result = await db.inventoryItem.createMany({ data: valid, skipDuplicates: true });
-    inserted = result.count;
+    try {
+      const result = await db.inventoryItem.createMany({ data: valid, skipDuplicates: true });
+      inserted = result.count;
+    } catch (err) {
+      console.error("[inventory/bulk] createMany failed:", err);
+      return NextResponse.json({ error: "Database insert failed. Please try again." }, { status: 500 });
+    }
   }
 
-  // Build downloadable failed-rows CSV
-  const failedCsv = failed.length > 0
-    ? buildFailedCsv(failed)
-    : null;
+  const failedCsv = failed.length > 0 ? buildFailedCsv(failed) : null;
 
   return NextResponse.json({
     inserted,
     failed: failed.length,
     total: rows.length,
     batchId,
-    errors: failed.slice(0, 50).map((f) => `Row ${f.row} (${f.iccid}): ${f.reason}`),
-    failedCsv, // base64-encoded CSV of failed rows with reason column
+    chunk,
+    totalChunks,
+    errors: failed.slice(0, 100).map((f) => `Row ${f.row} (${f.iccid}): ${f.reason}`),
+    failedCsv,
   });
 }
 
-/** RFC 4180-compliant CSV parser. Handles quoted fields, commas inside quotes, escaped quotes. */
+/** RFC 4180-compliant CSV parser. Handles quoted fields with commas, escaped quotes, CRLF. */
 function parseCsvRobust(csv: string): Record<string, string>[] {
   const lines = csv.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
@@ -166,45 +221,44 @@ function parseCsvRobust(csv: string): Record<string, string>[] {
   const parseRow = (line: string): string[] => {
     const fields: string[] = [];
     let i = 0;
-    while (i < line.length) {
+    while (i <= line.length) {
+      if (i === line.length) { fields.push(""); break; }
       if (line[i] === '"') {
-        // Quoted field
         let field = "";
-        i++; // skip opening quote
+        i++;
         while (i < line.length) {
-          if (line[i] === '"' && line[i + 1] === '"') {
-            field += '"'; i += 2; // escaped quote
-          } else if (line[i] === '"') {
-            i++; break; // closing quote
-          } else {
-            field += line[i++];
-          }
+          if (line[i] === '"' && line[i + 1] === '"') { field += '"'; i += 2; }
+          else if (line[i] === '"') { i++; break; }
+          else { field += line[i++]; }
         }
         fields.push(field);
-        if (line[i] === ",") i++; // skip comma separator
+        if (line[i] === ",") i++;
+        else break;
       } else {
-        // Unquoted field
         const end = line.indexOf(",", i);
-        if (end === -1) {
-          fields.push(line.slice(i).trim());
-          break;
-        } else {
-          fields.push(line.slice(i, end).trim());
-          i = end + 1;
-        }
+        if (end === -1) { fields.push(line.slice(i).trim()); break; }
+        else { fields.push(line.slice(i, end).trim()); i = end + 1; }
       }
     }
     return fields;
   };
 
-  const headers = parseRow(lines[0]).map((h) => h.trim());
+  const headers = parseRow(lines[0]).map((h) => h.trim().toLowerCase()
+    // normalise common header variants
+    .replace(/lpa.*/i, "lpaActivationString")
+    .replace(/activation.?code/i, "lpaActivationString")
+    .replace(/esim.?profile/i, "lpaActivationString")
+    .replace(/plan.?id/i, "planId")
+    .replace(/expires.?at/i, "expiresAt")
+  );
+
   const result: Record<string, string>[] = [];
   for (let li = 1; li < lines.length; li++) {
     const line = lines[li].trim();
     if (!line) continue;
     const cells = parseRow(line);
     const row: Record<string, string> = {};
-    headers.forEach((h, i) => { row[h] = cells[i] ?? ""; });
+    headers.forEach((h, idx) => { row[h] = cells[idx] ?? ""; });
     result.push(row);
   }
   return result;
@@ -212,8 +266,8 @@ function parseCsvRobust(csv: string): Record<string, string>[] {
 
 function buildFailedCsv(failed: { row: number; iccid: string; reason: string; rawLine: string }[]): string {
   const header = "row,iccid,reason,original_data";
-  const rows = failed.map((f) =>
-    `${f.row},"${f.iccid}","${f.reason.replace(/"/g, '""')}","${f.rawLine.replace(/"/g, '""')}"`
+  const rows = failed.map(
+    (f) => `${f.row},"${f.iccid}","${f.reason.replace(/"/g, '""')}","${f.rawLine.replace(/"/g, '""')}"`
   );
   return Buffer.from([header, ...rows].join("\n")).toString("base64");
 }

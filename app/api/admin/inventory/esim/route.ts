@@ -1,6 +1,10 @@
 export const runtime = "nodejs";
 // POST /api/admin/inventory/esim
-// Add a single eSIM by LPA string (server generates QR) or by providing both LPA + QR.
+// Add a single eSIM by:
+//   Method A — LPA string (server generates QR from it)
+//   Method B — QR image upload (client decodes QR → sends LPA + original QR data URL)
+//
+// ICCID is OPTIONAL. If not provided, a unique fallback ID is generated automatically.
 
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
@@ -24,62 +28,95 @@ export async function POST(req: NextRequest) {
   if (!body) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
 
   const {
-    iccid,
+    iccid: iccidRaw,
     lpaActivationString,
     carrier: carrierRaw,
     planId,
     country,
     confirmationCode,
-    // For QR-upload method: client already decoded LPA from QR image
-    qrCodeDataUrl, // optional: pre-supplied base64 data URL from client
+    qrCodeDataUrl, // optional: original QR image from client (used when admin uploads a QR photo)
   } = body;
 
-  // Validate required fields
+  // ── Carrier (required) ──────────────────────────────────────────────────────
   const carrier = String(carrierRaw ?? "").toUpperCase().trim() as Carrier;
-  const iccidClean = String(iccid ?? "").trim();
-  const lpa = String(lpaActivationString ?? "").trim();
-
   if (!CARRIERS.includes(carrier)) {
-    return NextResponse.json({ error: `Invalid carrier. Must be one of: ${CARRIERS.join(", ")}` }, { status: 400 });
-  }
-  if (!iccidClean) return NextResponse.json({ error: "ICCID is required" }, { status: 400 });
-  if (!lpa) return NextResponse.json({ error: "LPA Activation String is required" }, { status: 400 });
-  if (!lpa.startsWith("LPA:")) {
-    return NextResponse.json({ error: "LPA string must start with LPA: (e.g. LPA:1$server$code)" }, { status: 400 });
+    return NextResponse.json(
+      { error: `Invalid carrier. Must be one of: ${CARRIERS.join(", ")}` },
+      { status: 400 },
+    );
   }
 
-  // Check duplicate
-  const existing = await db.inventoryItem.findUnique({ where: { iccid: iccidClean } });
-  if (existing) {
-    return NextResponse.json({ error: `ICCID ${iccidClean} already exists in inventory` }, { status: 409 });
+  // ── LPA activation string (required) ───────────────────────────────────────
+  const lpaRaw = String(lpaActivationString ?? "").trim();
+  if (!lpaRaw) {
+    return NextResponse.json({ error: "LPA Activation String is required" }, { status: 400 });
+  }
+  if (!lpaRaw.startsWith("LPA:")) {
+    return NextResponse.json(
+      { error: 'LPA string must start with "LPA:" (e.g. LPA:1$server$activationcode)' },
+      { status: 400 },
+    );
   }
 
-  // Generate QR code from LPA string (server-side) if not supplied by client
+  // ── ICCID (optional) ────────────────────────────────────────────────────────
+  // If the admin/supplier doesn't provide an ICCID, generate a unique placeholder.
+  const iccidClean = String(iccidRaw ?? "").trim();
+  const iccid = iccidClean || `QR-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+
+  // ── Duplicate check ─────────────────────────────────────────────────────────
+  if (iccidClean) {
+    const existing = await db.inventoryItem.findUnique({ where: { iccid } });
+    if (existing) {
+      return NextResponse.json(
+        { error: `ICCID ${iccid} already exists in inventory` },
+        { status: 409 },
+      );
+    }
+  }
+
+  // ── QR code ─────────────────────────────────────────────────────────────────
+  // Priority: original QR image from client > server-generated from LPA string
   let qrCode: string;
   try {
-    qrCode = qrCodeDataUrl ?? await QRCode.toDataURL(lpa, { width: 300, margin: 2 });
+    if (qrCodeDataUrl) {
+      // Admin uploaded a QR photo — store the original image so customer receives it as-is
+      qrCode = qrCodeDataUrl;
+    } else {
+      // Generate clean QR from LPA string
+      qrCode = await QRCode.toDataURL(lpaRaw, {
+        width: 512,
+        margin: 2,
+        errorCorrectionLevel: "M",
+        color: { dark: "#000000", light: "#FFFFFF" },
+      });
+    }
   } catch {
     return NextResponse.json({ error: "Failed to generate QR code" }, { status: 500 });
   }
 
-  // Build confirmation code suffix if provided (some LPA strings need it)
-  const lpaFinal = confirmationCode ? `${lpa}$${confirmationCode}` : lpa;
+  // Append confirmation code to LPA if provided
+  const lpaFinal = confirmationCode ? `${lpaRaw}$${confirmationCode}` : lpaRaw;
 
   try {
     const item = await db.inventoryItem.create({
       data: {
         carrier,
-        iccid: iccidClean,
+        iccid,
         lpaActivationString: lpaFinal,
         qrCode,
-        planId: planId ? String(planId).trim() : null,
-        country: country ? String(country).trim() : "US",
+        planId: planId ? String(planId).trim() || null : null,
+        country: country ? String(country).trim() || "US" : "US",
         status: "AVAILABLE",
         batchId: `single_${Date.now()}`,
       },
     });
 
-    return NextResponse.json({ ok: true, id: item.id, iccid: item.iccid });
+    return NextResponse.json({
+      ok: true,
+      id: item.id,
+      iccid: item.iccid,
+      autoIccid: !iccidClean, // tells client we generated the ICCID
+    });
   } catch (err) {
     console.error("[esim/single]", err);
     return NextResponse.json({ error: "Failed to save eSIM" }, { status: 500 });

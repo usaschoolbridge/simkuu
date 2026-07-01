@@ -59,6 +59,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Plan not available" }, { status: 404 });
     }
 
+    // ── Backend inventory check ───────────────────────────────────────────────
+    const availableCount = await db.inventoryItem.count({
+      where: { planId, status: "AVAILABLE" },
+    });
+    if (availableCount === 0) {
+      return NextResponse.json(
+        { error: "This plan is currently out of stock. Please choose a different plan." },
+        { status: 409 },
+      );
+    }
+
     // ── Coupon validation ─────────────────────────────────────────────────────
     let coupon = null;
     let discountAmount = 0;
