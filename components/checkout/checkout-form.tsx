@@ -185,9 +185,14 @@ export function CheckoutForm({ plan, discount = 0, onCouponApply }: CheckoutForm
   const handlePayPal = () => startPayment("PAYPAL", { url: "/api/checkout/paypal", key: "approvalUrl" });
   const handleAppleGooglePay = () => startPayment("APPLE_PAY", { url: "/api/checkout/stripe", key: "url" });
 
-  const total = couponApplied
-    ? Math.round(couponApplied.finalAmount * 100)
-    : plan.price - discount;
+  // Compute tax-inclusive total (mirrors order-summary.tsx and backend logic)
+  const TAX_RATE = 0.09;
+  const appliedDiscountCents = couponApplied
+    ? Math.round(couponApplied.discountAmount * 100)
+    : discount;
+  const afterDiscountCents = Math.max(0, plan.price - appliedDiscountCents);
+  const taxCents = Math.round(afterDiscountCents * TAX_RATE);
+  const total = afterDiscountCents + taxCents; // cents, tax-inclusive
 
   return (
     <div className="space-y-5">

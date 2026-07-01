@@ -40,14 +40,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "This coupon is not valid for this plan" }, { status: 400 });
     }
 
-    // Calculate discount
+    // Calculate discount (amount is in dollars, pre-tax)
     let discountAmount = 0;
     if (coupon.discountType === "PERCENTAGE") {
       discountAmount = (amount * Number(coupon.discountValue)) / 100;
     } else {
       discountAmount = Math.min(Number(coupon.discountValue), amount);
     }
-    const finalAmount = Math.max(0, amount - discountAmount);
+    discountAmount = parseFloat(discountAmount.toFixed(2));
+
+    // Apply 9% tax on the discounted price (mirrors backend order creation)
+    const TAX_RATE = 0.09;
+    const afterDiscount = Math.max(0, amount - discountAmount);
+    const taxAmount = parseFloat((afterDiscount * TAX_RATE).toFixed(2));
+    const finalAmount = parseFloat((afterDiscount + taxAmount).toFixed(2));
 
     return NextResponse.json({
       valid: true,
@@ -55,8 +61,9 @@ export async function POST(req: NextRequest) {
       code: coupon.code,
       discountType: coupon.discountType,
       discountValue: Number(coupon.discountValue),
-      discountAmount: parseFloat(discountAmount.toFixed(2)),
-      finalAmount: parseFloat(finalAmount.toFixed(2)),
+      discountAmount,
+      taxAmount,
+      finalAmount, // tax-inclusive total
     });
   } catch (err) {
     console.error("[coupon/validate]", err);
