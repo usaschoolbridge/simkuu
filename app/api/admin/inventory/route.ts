@@ -36,14 +36,17 @@ export async function GET() {
   const totals = { AVAILABLE: 0, RESERVED: 0, SOLD: 0 };
   for (const r of byStatus) totals[r.status as keyof typeof totals] = r._count._all;
 
-  const perPlan = plans.map((p) => {
-    const available = byPlan.find((b) => b.planId === p.id && b.status === "AVAILABLE")?._count._all ?? 0;
+  type PlanRow = { id: string; name: string; carrierId: string };
+  type ByPlanRow = { planId: string | null; status: string; _count: { _all: number } };
+
+  const perPlan = plans.map((p: PlanRow) => {
+    const available = byPlan.find((b: ByPlanRow) => b.planId === p.id && b.status === "AVAILABLE")?._count._all ?? 0;
     return { planId: p.id, name: p.name, carrier: p.carrierId, available, low: available <= LOW_STOCK_THRESHOLD };
   });
 
   // Auto-detect carrier out-of-stock: carrier is out if ALL its plans have 0 available
   const autoCarrierStatus: Record<string, boolean> = {};
-  const allCarrierIds = [...new Set(plans.map((p) => p.carrierId))];
+  const allCarrierIds = [...new Set(plans.map((p: PlanRow) => p.carrierId))];
   for (const carrierId of allCarrierIds) {
     const carrierPlans = perPlan.filter((p) => p.carrier === carrierId);
     autoCarrierStatus[carrierId] = carrierPlans.length > 0 && carrierPlans.every((p) => p.available === 0);
