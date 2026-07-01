@@ -47,18 +47,19 @@ export async function GET() {
   // Auto-detect carrier out-of-stock: carrier is out if ALL its plans have 0 available
   const autoCarrierStatus: Record<string, boolean> = {};
   type PerPlanRow = { planId: string; name: string; carrier: string; available: number; low: boolean };
+  const typedPerPlan = perPlan as PerPlanRow[];
   const allCarrierIds = [...new Set(plans.map((p: PlanRow) => p.carrierId))];
   for (const carrierId of allCarrierIds) {
-    const carrierPlans = perPlan.filter((p: PerPlanRow) => p.carrier === carrierId);
-    autoCarrierStatus[carrierId] = carrierPlans.length > 0 && carrierPlans.every((p: PerPlanRow) => p.available === 0);
+    const carrierPlans = typedPerPlan.filter((pp: PerPlanRow) => pp.carrier === carrierId);
+    autoCarrierStatus[String(carrierId)] = carrierPlans.length > 0 && carrierPlans.every((pp: PerPlanRow) => pp.available === 0);
   }
 
   return NextResponse.json({
     totals,
-    perPlan,
-    lowStock: perPlan.filter((p) => p.low),
+    perPlan: typedPerPlan,
+    lowStock: typedPerPlan.filter((pp: PerPlanRow) => pp.low),
     threshold: LOW_STOCK_THRESHOLD,
-    autoCarrierStatus, // frontend can use this to show auto status
+    autoCarrierStatus,
   });
 }
 

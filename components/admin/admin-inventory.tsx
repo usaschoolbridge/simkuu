@@ -345,7 +345,7 @@ function BulkUpload({ plans, onSuccess }: { plans: Plan[]; onSuccess: () => void
         }
 
         if (!r.ok) {
-          allErrors.push(`Chunk ${c + 1}: ${data.error ?? "Upload failed"}`);
+          allErrors.push(`Chunk ${c + 1}: Upload failed`);
         } else {
           totalInserted += data.inserted ?? 0;
           totalFailed += data.failed ?? 0;
