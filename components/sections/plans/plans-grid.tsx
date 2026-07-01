@@ -164,7 +164,7 @@ export function PlansGrid() {
   useEffect(() => {
     fetch("/api/plans")
       .then(r => r.json())
-      .then(data => { setPlans(data); setLoading(false); })
+      .then(data => { setPlans(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
 

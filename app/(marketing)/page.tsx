@@ -1,11 +1,16 @@
 import type { Metadata } from "next";
 import { HeroSection } from "@/components/sections/hero";
+import { TrustBar } from "@/components/sections/trust-bar";
 import { WhyChooseUs } from "@/components/sections/why-choose-us";
+import { UsedFor } from "@/components/sections/used-for";
 import { CarrierCards } from "@/components/sections/carrier-cards";
-import { HowItWorks } from "@/components/sections/how-it-works";
 import { PricingSection } from "@/components/sections/pricing";
+import { HowItWorks } from "@/components/sections/how-it-works";
+import { SocialProof } from "@/components/sections/social-proof";
+import { LiveActivity } from "@/components/sections/live-activity";
+import { StickyCTA } from "@/components/sections/sticky-cta";
 // Below-the-fold heavy components loaded lazily
-import { LazyCoverageMap, LazyTestimonials, LazyFAQ } from "@/components/lazy";
+import { LazyCoverageMap, LazyFAQ } from "@/components/lazy";
 import { JsonLd, faqSchema } from "@/components/seo/json-ld";
 import { siteConfig } from "@/config/site";
 
@@ -31,7 +36,7 @@ export const metadata: Metadata = {
     siteName: siteConfig.name,
     images: [
       {
-        url: `${siteConfig.url}/og?title=USA+eSIM+Provider&sub=T-Mobile+%C2%B7+Verizon+%C2%B7+AT%26T+%C2%B7+MVNO&tag=250K%2B+eSIMs+Activated`,
+        url: `${siteConfig.url}/og?title=USA+eSIM+Provider&sub=T-Mobile+%C2%B7+Verizon+%C2%B7+AT%26T+%C2%B7+MVNO&tag=25K%2B+eSIMs+Activated`,
         width: 1200,
         height: 630,
         alt: `${siteConfig.name} — Premium USA eSIM Plans`,
@@ -44,7 +49,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: `${siteConfig.name} — ${siteConfig.tagline}`,
     description: siteConfig.description,
-    images: [`${siteConfig.url}/og?title=USA+eSIM+Provider&sub=T-Mobile+%C2%B7+Verizon+%C2%B7+AT%26T+%C2%B7+MVNO&tag=250K%2B+eSIMs+Activated`],
+    images: [`${siteConfig.url}/og?title=USA+eSIM+Provider&sub=T-Mobile+%C2%B7+Verizon+%C2%B7+AT%26T+%C2%B7+MVNO&tag=25K%2B+eSIMs+Activated`],
     site: "@simkuu",
   },
 };
@@ -54,13 +59,17 @@ export default function HomePage() {
     <>
       <JsonLd data={faqSchema(HOME_FAQS)} />
       <HeroSection />
+      <TrustBar />
       <WhyChooseUs />
+      <UsedFor />
       <CarrierCards />
       <PricingSection />
       <HowItWorks />
+      <SocialProof />
       <LazyCoverageMap />
-      <LazyTestimonials />
       <LazyFAQ />
+      <LiveActivity />
+      <StickyCTA />
     </>
   );
 }

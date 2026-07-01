@@ -1,14 +1,12 @@
 "use client";
 
-import { useRef, useEffect } from "react";
-import { motion, useInView, useAnimation, Variants } from "framer-motion";
+import { motion, Variants } from "framer-motion";
 import { fadeUp, fadeIn, fadeLeft, fadeRight, scaleIn, staggerContainer } from "@/animations/variants";
 
 interface RevealProps {
   children: React.ReactNode;
   variant?: "fadeUp" | "fadeIn" | "fadeLeft" | "fadeRight" | "scaleIn";
   delay?: number;
-  duration?: number;
   className?: string;
   once?: boolean;
   threshold?: number;
@@ -22,6 +20,11 @@ const VARIANTS_MAP: Record<string, Variants> = {
   scaleIn,
 };
 
+/**
+ * Reveal — uses whileInView directly (no useAnimation / useEffect / useRef overhead).
+ * whileInView is internally backed by IntersectionObserver and is more efficient
+ * than manually wiring useInView → useAnimation → useEffect.
+ */
 export function Reveal({
   children,
   variant = "fadeUp",
@@ -30,19 +33,8 @@ export function Reveal({
   once = true,
   threshold = 0.1,
 }: RevealProps) {
-  const ref = useRef(null);
-  const isInView = useInView(ref, { once, amount: threshold });
-  const controls = useAnimation();
-
-  useEffect(() => {
-    if (isInView) {
-      controls.start("visible");
-    } else if (!once) {
-      controls.start("hidden");
-    }
-  }, [isInView, controls, once]);
-
   const vars = VARIANTS_MAP[variant];
+
   const delayedVars: Variants = {
     hidden: vars.hidden,
     visible: {
@@ -58,9 +50,9 @@ export function Reveal({
 
   return (
     <motion.div
-      ref={ref}
       initial="hidden"
-      animate={controls}
+      whileInView="visible"
+      viewport={{ once, amount: threshold }}
       variants={delayedVars}
       className={className}
     >
@@ -77,23 +69,14 @@ interface StaggerRevealProps {
 }
 
 export function StaggerReveal({ children, className, once = true, delay = 0 }: StaggerRevealProps) {
-  const ref = useRef(null);
-  const isInView = useInView(ref, { once, amount: 0.1 });
-  const controls = useAnimation();
-
-  useEffect(() => {
-    if (isInView) controls.start("visible");
-    else if (!once) controls.start("hidden");
-  }, [isInView, controls, once]);
-
   return (
     <motion.div
-      ref={ref}
       initial="hidden"
-      animate={controls}
+      whileInView="visible"
+      viewport={{ once, amount: 0.05 }}
       variants={{
         hidden: {},
-        visible: { transition: { staggerChildren: 0.1, delayChildren: delay } },
+        visible: { transition: { staggerChildren: 0.08, delayChildren: delay } },
       }}
       className={className}
     >

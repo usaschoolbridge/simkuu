@@ -137,13 +137,12 @@
   }
   html {
     @apply font-sans;
-    scroll-behavior: smooth;
+    /* scroll-behavior: smooth removed — it conflicts with JS scroll and causes jank.
+       Use scroll-margin-top on anchor targets instead. */
   }
-  /* Issue 1: Respect reduced-motion preference */
+  /* Reduced motion — animations already stripped at runtime, keep this as safety net */
   @media (prefers-reduced-motion: reduce) {
-    html {
-      scroll-behavior: auto;
-    }
+    html { scroll-behavior: auto; }
   }
   body {
     @apply bg-background text-foreground antialiased;
@@ -252,9 +251,9 @@
       #ffffff;
   }
 
-  /* Section spacing */
+  /* Section spacing — tighter, Stripe/Linear-style */
   .section-padding {
-    @apply py-24 md:py-32 lg:py-40;
+    @apply py-16 md:py-20;
   }
 
   /* Container */
@@ -262,18 +261,18 @@
     @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
   }
 
-  /* Card premium */
+  /* Card premium — no backdrop-filter (too expensive at scale) */
   .card-premium {
-    background: rgba(255, 255, 255, 0.8);
-    backdrop-filter: blur(20px);
+    background: rgba(255, 255, 255, 0.95);
     border: 1px solid rgba(0, 0, 0, 0.06);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 1);
     border-radius: 1.25rem;
-    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: box-shadow 0.25s ease, transform 0.25s ease;
+    will-change: transform;
   }
 
   .card-premium:hover {
-    box-shadow: 0 8px 48px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.09), inset 0 1px 0 rgba(255, 255, 255, 1);
     transform: translateY(-2px);
   }
 
@@ -377,11 +376,17 @@
   }
 }
 
-.animate-float { animation: float 6s ease-in-out infinite; }
-.animate-float-delay { animation: float 6s ease-in-out infinite 1.5s; }
-.animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
-.animate-spin-slow { animation: spin-slow 8s linear infinite; }
-.animate-marquee { animation: marquee 30s linear infinite; }
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+  will-change: transform;
+}
+.animate-float-delay {
+  animation: float 6s ease-in-out infinite 1.5s;
+  will-change: transform;
+}
+.animate-pulse-glow { animation: pulse-glow 4s ease-in-out infinite; }
+.animate-spin-slow { animation: spin-slow 8s linear infinite; will-change: transform; }
+.animate-marquee { animation: marquee 30s linear infinite; will-change: transform; }
 .animate-shimmer {
   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
   background-size: 200% 100%;
