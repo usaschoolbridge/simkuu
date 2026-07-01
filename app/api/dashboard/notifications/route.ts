@@ -4,10 +4,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // ?count=1 — return only the unread count (used by shell header)
+  const countOnly = req.nextUrl.searchParams.get("count") === "1";
+  if (countOnly) {
+    const unread = await db.notification.count({ where: { userId: session.userId, isRead: false } });
+    return NextResponse.json({ unread });
+  }
 
   try {
     const notifications = await db.notification.findMany({

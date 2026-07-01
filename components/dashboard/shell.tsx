@@ -1,32 +1,75 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, Wifi, ShoppingBag, FileText, User, Wallet,
-  Gift, Bell, LifeBuoy, Settings, LogOut, Menu, X, ChevronRight,
-  Zap, Shield
+  Gift, Bell, LifeBuoy, Menu, X, ChevronRight,
+  Zap, LogOut, Loader2,
 } from "lucide-react";
 
 const NAV = [
-  { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
-  { label: "My eSIMs", href: "/dashboard/esims", icon: Wifi },
-  { label: "Orders", href: "/dashboard/orders", icon: ShoppingBag },
-  { label: "Invoices", href: "/dashboard/invoices", icon: FileText },
-  { label: "Wallet", href: "/dashboard/wallet", icon: Wallet },
-  { label: "Referrals", href: "/dashboard/referrals", icon: Gift },
-  { label: "Notifications", href: "/dashboard/notifications", icon: Bell, badge: 3 },
-  { label: "Support", href: "/dashboard/support", icon: LifeBuoy },
-  { label: "Profile", href: "/dashboard/profile", icon: User },
+  { label: "Overview",      href: "/dashboard",               icon: LayoutDashboard },
+  { label: "My eSIMs",     href: "/dashboard/esims",         icon: Wifi },
+  { label: "Orders",        href: "/dashboard/orders",        icon: ShoppingBag },
+  { label: "Invoices",      href: "/dashboard/invoices",      icon: FileText },
+  { label: "Wallet",        href: "/dashboard/wallet",        icon: Wallet },
+  { label: "Referrals",     href: "/dashboard/referrals",     icon: Gift },
+  { label: "Notifications", href: "/dashboard/notifications", icon: Bell },
+  { label: "Support",       href: "/dashboard/support",       icon: LifeBuoy },
+  { label: "Profile",       href: "/dashboard/profile",       icon: User },
 ];
 
-// Mock user
-const MOCK_USER = { name: "Alex Johnson", email: "alex@example.com", plan: "Pro", avatar: "AJ" };
+interface AuthUser {
+  name: string | null;
+  email: string;
+  image?: string | null;
+  unreadCount: number;
+}
 
-function Sidebar({ mobile = false, onClose }: { mobile?: boolean; onClose?: () => void }) {
+function useAuthUser() {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    try {
+      const [meRes, notifRes] = await Promise.all([
+        fetch("/api/auth/me"),
+        fetch("/api/dashboard/notifications?count=1"),
+      ]);
+      if (!meRes.ok) { setUser(null); setLoading(false); return; }
+      const me = await meRes.json();
+      const notifData = notifRes.ok ? await notifRes.json() : { unread: 0 };
+      setUser({
+        name: me.user?.fullName || null,
+        email: me.user?.email || "",
+        image: null,
+        unreadCount: typeof notifData.unread === "number" ? notifData.unread : 0,
+      });
+    } catch {
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+  return { user, loading, refresh };
+}
+
+function Sidebar({ user, onClose, onLogout, loggingOut, mobile = false }: {
+  user: AuthUser | null;
+  onClose?: () => void;
+  onLogout: () => void;
+  loggingOut: boolean;
+  mobile?: boolean;
+}) {
   const pathname = usePathname();
+  const initials = user?.name
+    ? user.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
+    : (user?.email?.[0] ?? "U").toUpperCase();
 
   return (
     <aside className={`flex flex-col h-full bg-white ${mobile ? "w-full" : "w-64"}`}>
@@ -47,8 +90,10 @@ function Sidebar({ mobile = false, onClose }: { mobile?: boolean; onClose?: () =
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {NAV.map(({ label, href, icon: Icon, badge }) => {
-          const active = pathname === href;
+        {NAV.map(({ label, href, icon: Icon }) => {
+          const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+          const isNotif = href === "/dashboard/notifications";
+          const badge = isNotif && (user?.unreadCount ?? 0) > 0 ? user!.unreadCount : null;
           return (
             <Link
               key={href}
@@ -66,7 +111,7 @@ function Sidebar({ mobile = false, onClose }: { mobile?: boolean; onClose?: () =
                 <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center ${
                   active ? "bg-white/20 text-white" : "bg-blue-500 text-white"
                 }`}>
-                  {badge}
+                  {badge > 99 ? "99+" : badge}
                 </span>
               )}
               {active && <ChevronRight className="w-3.5 h-3.5 text-white/60" />}
@@ -90,16 +135,21 @@ function Sidebar({ mobile = false, onClose }: { mobile?: boolean; onClose?: () =
 
       {/* User */}
       <div className="border-t border-black/5 px-3 py-3">
-        <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-black/5 transition-colors cursor-pointer">
+        <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-black/5 transition-colors">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-            {MOCK_USER.avatar}
+            {initials}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-black truncate">{MOCK_USER.name}</div>
-            <div className="text-xs text-black/30 truncate">{MOCK_USER.email}</div>
+            <div className="text-sm font-semibold text-black truncate">{user?.name ?? user?.email ?? "Loading…"}</div>
+            <div className="text-xs text-black/30 truncate">{user?.email ?? ""}</div>
           </div>
-          <button className="p-1 rounded-lg hover:bg-black/10 transition-colors text-black/30 hover:text-black/60">
-            <LogOut className="w-3.5 h-3.5" />
+          <button
+            onClick={onLogout}
+            disabled={loggingOut}
+            title="Log out"
+            className="p-1 rounded-lg hover:bg-red-50 hover:text-red-500 transition-colors text-black/30 disabled:opacity-50"
+          >
+            {loggingOut ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
           </button>
         </div>
       </div>
@@ -107,9 +157,19 @@ function Sidebar({ mobile = false, onClose }: { mobile?: boolean; onClose?: () =
   );
 }
 
-function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
+function TopBar({ user, onMenuClick, onLogout }: {
+  user: AuthUser | null;
+  onMenuClick: () => void;
+  onLogout: () => void;
+}) {
   const pathname = usePathname();
-  const currentPage = NAV.find((n) => n.href === pathname)?.label ?? "Dashboard";
+  const currentPage = NAV.find((n) => n.href === pathname)?.label
+    ?? NAV.find((n) => n.href !== "/dashboard" && pathname.startsWith(n.href))?.label
+    ?? "Dashboard";
+
+  const initials = user?.name
+    ? user.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
+    : (user?.email?.[0] ?? "U").toUpperCase();
 
   return (
     <header className="h-16 border-b border-black/5 bg-white/80 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-10">
@@ -120,19 +180,26 @@ function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
         >
           <Menu className="w-5 h-5 text-black/50" />
         </button>
-        <div>
-          <h1 className="font-display font-bold text-lg text-black">{currentPage}</h1>
-        </div>
+        <h1 className="font-display font-bold text-lg text-black">{currentPage}</h1>
       </div>
 
       <div className="flex items-center gap-3">
         <Link href="/dashboard/notifications" className="relative p-2 rounded-xl hover:bg-black/5 transition-colors">
           <Bell className="w-5 h-5 text-black/40" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-blue-500" />
+          {(user?.unreadCount ?? 0) > 0 && (
+            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-blue-500" />
+          )}
         </Link>
         <Link href="/dashboard/profile" className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold">
-          {MOCK_USER.avatar}
+          {initials}
         </Link>
+        <button
+          onClick={onLogout}
+          title="Log out"
+          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-black/40 hover:text-red-500 hover:bg-red-50 transition-colors"
+        >
+          <LogOut className="w-3.5 h-3.5" /> Logout
+        </button>
       </div>
     </header>
   );
@@ -140,12 +207,26 @@ function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const router = useRouter();
+  const { user } = useAuthUser();
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      router.push("/login");
+      router.refresh();
+    } catch {
+      setLoggingOut(false);
+    }
+  };
 
   return (
     <div className="flex h-screen bg-gray-50/50 overflow-hidden">
       {/* Desktop sidebar */}
       <div className="hidden lg:flex flex-col w-64 border-r border-black/5 flex-shrink-0">
-        <Sidebar />
+        <Sidebar user={user} onLogout={handleLogout} loggingOut={loggingOut} />
       </div>
 
       {/* Mobile sidebar */}
@@ -166,7 +247,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
               className="fixed inset-y-0 left-0 w-72 z-50 lg:hidden shadow-2xl"
             >
-              <Sidebar mobile onClose={() => setMobileOpen(false)} />
+              <Sidebar
+                mobile
+                user={user}
+                onClose={() => setMobileOpen(false)}
+                onLogout={handleLogout}
+                loggingOut={loggingOut}
+              />
             </motion.div>
           </>
         )}
@@ -174,7 +261,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
       {/* Main */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <TopBar onMenuClick={() => setMobileOpen(true)} />
+        <TopBar user={user} onMenuClick={() => setMobileOpen(true)} onLogout={handleLogout} />
         <main className="flex-1 overflow-y-auto">
           <div className="p-6 max-w-7xl mx-auto">
             {children}

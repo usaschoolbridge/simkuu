@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useEffect, createContext, useContext, useRef } from "react";
+import { usePathname } from "next/navigation";
 import Lenis from "lenis";
 import { CurrencyProvider } from "@/contexts/currency";
 
@@ -36,8 +37,21 @@ export function useLenis() {
 
 function LenisProvider({ children }: { children: React.ReactNode }) {
   const lenisRef = useRef<Lenis | null>(null);
+  const pathname = usePathname();
+
+  // Disable Lenis on dashboard & admin routes — they use their own overflow-y-auto
+  // inner scroll container. Lenis intercepts wheel events on window and starves the
+  // inner div of scroll when it has no natural body scroll to hand back.
+  const isDashboard = pathname.startsWith("/dashboard") || pathname.startsWith("/admin");
 
   useEffect(() => {
+    if (isDashboard) {
+      // Destroy any existing instance when navigating into dashboard
+      lenisRef.current?.destroy();
+      lenisRef.current = null;
+      return;
+    }
+
     const lenis = new Lenis({
       duration: 1.2,
       easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
@@ -47,15 +61,19 @@ function LenisProvider({ children }: { children: React.ReactNode }) {
 
     lenisRef.current = lenis;
 
+    let rafId: number;
     function raf(time: number) {
       lenis.raf(time);
-      requestAnimationFrame(raf);
+      rafId = requestAnimationFrame(raf);
     }
+    rafId = requestAnimationFrame(raf);
 
-    requestAnimationFrame(raf);
-
-    return () => lenis.destroy();
-  }, []);
+    return () => {
+      cancelAnimationFrame(rafId);
+      lenis.destroy();
+      lenisRef.current = null;
+    };
+  }, [isDashboard]);
 
   return (
     <LenisContext.Provider value={{ lenis: lenisRef.current }}>

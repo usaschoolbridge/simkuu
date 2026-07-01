@@ -94,6 +94,7 @@ enum BlogStatus {
   ARCHIVED
 }
 
+
 enum WalletTransactionType {
   TOPUP
   PURCHASE
