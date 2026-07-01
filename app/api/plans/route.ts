@@ -5,21 +5,31 @@ import { db } from "@/lib/db";
 
 export async function GET() {
   try {
-    const plans = await db.plan.findMany({
-      where: { isActive: true },
-      include: {
-        carrier: true,
-        _count: { select: { inventory: { where: { status: "AVAILABLE" } } } },
-      },
-      orderBy: { sortOrder: "asc" },
-    });
+    const [plans, carrierStatusRow] = await Promise.all([
+      db.plan.findMany({
+        where: { isActive: true },
+        include: {
+          carrier: true,
+          _count: { select: { inventory: { where: { status: "AVAILABLE" } } } },
+        },
+        orderBy: { sortOrder: "asc" },
+      }),
+      db.siteSettings.findUnique({ where: { key: "carrier_out_of_stock" } }),
+    ]);
 
-    // Attach inventoryCount to each plan
-    const plansWithStock = plans.map((p: (typeof plans)[number]) => ({
-      ...p,
-      inventoryCount: p._count.inventory,
-      inStock: p._count.inventory > 0,
-    }));
+    const carrierOutOfStock: Record<string, boolean> =
+      (carrierStatusRow?.value as Record<string, boolean>) ?? {};
+
+    // Attach inventoryCount and carrier out-of-stock flag to each plan
+    const plansWithStock = plans.map((p: (typeof plans)[number]) => {
+      const carrierBlocked = carrierOutOfStock[p.carrierId] === true;
+      return {
+        ...p,
+        inventoryCount: p._count.inventory,
+        inStock: p._count.inventory > 0 && !carrierBlocked,
+        carrierOutOfStock: carrierBlocked,
+      };
+    });
 
     return NextResponse.json(plansWithStock);
   } catch (err) {
