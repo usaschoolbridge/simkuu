@@ -120,6 +120,13 @@ export const checkoutLimiter: RateLimitConfig = { limit: 10, window: "60s", pref
 /** Auth endpoints: 5 attempts / minute */
 export const authLimiter: RateLimitConfig = { limit: 5, window: "60s", prefix: "auth" };
 
+/**
+ * Admin login: 20 attempts / minute. More forgiving than customer auth so a
+ * legitimate admin mistyping the shared password isn't locked out, while still
+ * making brute force of a strong secret infeasible.
+ */
+export const adminAuthLimiter: RateLimitConfig = { limit: 20, window: "60s", prefix: "adminauth" };
+
 /** Password reset: 3 attempts / 5 minutes */
 export const passwordResetLimiter: RateLimitConfig = { limit: 3, window: "5m", prefix: "pwreset" };
 

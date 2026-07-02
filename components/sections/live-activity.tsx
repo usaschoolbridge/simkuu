@@ -49,7 +49,10 @@ export function LiveActivity() {
   const activity = ACTIVITIES[current];
 
   return (
-    <div className="fixed bottom-6 left-6 z-50 pointer-events-none">
+    // On mobile the StickyCTA occupies the bottom edge (z-40). Sit this toast
+    // ABOVE it (offset clears the ~76px bar + iOS safe area) so it never covers
+    // the "Get Your USA Number" button. On desktop there's no bar, so bottom-6.
+    <div className="fixed left-4 md:left-6 z-30 md:z-50 pointer-events-none bottom-[calc(6rem_+_env(safe-area-inset-bottom))] md:bottom-6">
       <AnimatePresence>
         {visible && (
           <motion.div

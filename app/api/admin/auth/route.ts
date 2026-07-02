@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { rateLimit, authLimiter } from "@/lib/rate-limit";
+import { rateLimit, adminAuthLimiter } from "@/lib/rate-limit";
 import { signAdminToken, ADMIN_COOKIE_NAME, ADMIN_SESSION_DAYS, adminAudit } from "@/lib/admin-guard";
 
 export const runtime = "nodejs";
 
-const ADMIN_PASSWORD = process.env.ADMIN_SECRET_KEY ?? "simkuu-admin-2024";
+// Trim to tolerate a stray trailing newline/space in the Vercel env var, a
+// common cause of "correct password rejected".
+const ADMIN_PASSWORD = (process.env.ADMIN_SECRET_KEY ?? "simkuu-admin-2024").trim();
 
 function timingSafeCompare(a: string, b: string): boolean {
   const ha = crypto.createHash("sha256").update(a).digest();
@@ -15,13 +17,13 @@ function timingSafeCompare(a: string, b: string): boolean {
 
 // POST /api/admin/auth — login
 export async function POST(req: NextRequest) {
-  const limit = await rateLimit(req, authLimiter);
+  const limit = await rateLimit(req, adminAuthLimiter);
   if (!limit.success) {
     return NextResponse.json({ error: "Too many attempts. Wait a minute." }, { status: 429 });
   }
 
   const body = await req.json().catch(() => null);
-  const password = typeof body?.password === "string" ? body.password : "";
+  const password = typeof body?.password === "string" ? body.password.trim() : "";
 
   if (!password || !timingSafeCompare(password, ADMIN_PASSWORD)) {
     await adminAudit("login_failed", { ip: req.headers.get("x-forwarded-for") ?? "unknown" });
