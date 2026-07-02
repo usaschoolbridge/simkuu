@@ -65,21 +65,31 @@ async function handleWalletTopup(walletTxId: string, paymentId: string | number)
     if (!walletTx || walletTx.status === "COMPLETED") return;
 
     const amount = Number(walletTx.amount);
-    const updatedUser = await db.user.update({
-      where: { id: walletTx.userId },
-      data: { walletBalance: { increment: amount } },
-      select: { walletBalance: true },
-    });
-    const newBalance = Number(updatedUser.walletBalance);
 
-    await db.walletTransaction.update({
-      where: { id: walletTxId },
-      data: {
-        status: "COMPLETED",
-        balanceAfter: newBalance,
-        paymentId: String(paymentId),
-      },
+    // Atomic claim + credit in one transaction. Two concurrent PAID webhooks
+    // ("confirmed" and "finished" arrive together) both pass the read above;
+    // the updateMany with a status guard ensures only one performs the credit.
+    const newBalance = await db.$transaction(async (tx: typeof db) => {
+      const claimed = await tx.walletTransaction.updateMany({
+        where: { id: walletTxId, status: { not: "COMPLETED" } },
+        data: { status: "COMPLETED", paymentId: String(paymentId) },
+      });
+      if (claimed.count === 0) return null; // another webhook already credited
+
+      const updatedUser = await tx.user.update({
+        where: { id: walletTx.userId },
+        data: { walletBalance: { increment: amount } },
+        select: { walletBalance: true },
+      });
+      const balance = Number(updatedUser.walletBalance);
+
+      await tx.walletTransaction.update({
+        where: { id: walletTxId },
+        data: { balanceAfter: balance },
+      });
+      return balance;
     });
+    if (newBalance === null) return;
 
     await db.notification.create({
       data: {
@@ -260,10 +270,27 @@ export async function POST(req: NextRequest) {
   } else if (FAILED_STATUSES.includes(status)) {
     console.log(`[nowpayments-webhook] FAILED [${mode}] — orderId: ${orderId}, status: ${status}`);
     if (db) {
-      await db.order.update({
-        where: { id: orderId },
-        data: { status: "CANCELLED" },
-      }).catch(() => {});
+      // Never downgrade a fulfilled order: the customer already holds the eSIM.
+      // A late refunded/expired webhook on a fulfilled order needs a human —
+      // mark REFUNDED (refunds) or leave ACTIVE (expired/failed) and log it.
+      const fulfilled = await db.eSim.findUnique({ where: { orderId }, select: { id: true } });
+      if (fulfilled) {
+        if (status === "refunded") {
+          await db.order.update({
+            where: { id: orderId },
+            data: { status: "REFUNDED" },
+          }).catch(() => {});
+        }
+        console.error(
+          `[nowpayments-webhook] ⚠ ${status} received for FULFILLED order ${orderId} — manual review required (eSIM already delivered)`
+        );
+        await log("post_fulfillment_failure", { paymentId, orderId, status, error: "needs_manual_review" });
+      } else {
+        await db.order.updateMany({
+          where: { id: orderId, status: { in: ["PENDING", "PROCESSING"] } },
+          data: { status: "CANCELLED" },
+        }).catch(() => {});
+      }
     }
     await log("order_cancelled", { paymentId, orderId, status });
   } else {
