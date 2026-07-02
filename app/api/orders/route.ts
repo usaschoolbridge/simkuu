@@ -5,13 +5,6 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { rateLimit, checkoutLimiter } from "@/lib/rate-limit";
 
-/**
- * POST /api/orders
- * Creates a PENDING order for a guest (or logged-in) buyer and returns its id.
- * The id is then handed to the payment provider as metadata.orderId so the
- * webhook can fulfill it. Minimal guest fields: name + email (phone optional).
- */
-
 const bodySchema = z.object({
   planId: z.string().min(1),
   name: z.string().min(2, "Name required").max(120),
@@ -47,31 +40,58 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Plan not available" }, { status: 404 });
     }
 
-    // ── Backend inventory check — never rely on frontend only ─────────────────
+    // ── Inventory check ───────────────────────────────────────────────────────
     const availableCount = await db.inventoryItem.count({
       where: { planId: data.planId, status: "AVAILABLE" },
     });
     if (availableCount === 0) {
       return NextResponse.json(
         { error: "This plan is currently out of stock. Please check back soon or choose a different plan." },
-        { status: 409 },
+        { status: 409 }
       );
     }
 
-    // Coupon validation
+    // ── Coupon validation + atomic increment ──────────────────────────────────
     let coupon = null;
     let discountAmount = 0;
+
     if (data.couponCode) {
-      coupon = await db.coupon.findUnique({ where: { code: data.couponCode.toUpperCase().trim() } });
-      if (coupon && coupon.isActive &&
-          !(coupon.expiresAt && new Date(coupon.expiresAt) < new Date()) &&
-          !(coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses)) {
+      const rawCoupon = await db.coupon.findUnique({
+        where: { code: data.couponCode.toUpperCase().trim() },
+      });
+
+      if (
+        rawCoupon &&
+        rawCoupon.isActive &&
+        !(rawCoupon.expiresAt && new Date(rawCoupon.expiresAt) < new Date()) &&
+        !(rawCoupon.maxUses !== null && rawCoupon.usedCount >= rawCoupon.maxUses)
+      ) {
         const planPrice = Number(plan.price);
-        if (!coupon.minOrderAmount || planPrice >= Number(coupon.minOrderAmount)) {
-          if (coupon.discountType === "PERCENTAGE") {
-            discountAmount = (planPrice * Number(coupon.discountValue)) / 100;
+        if (!rawCoupon.minOrderAmount || planPrice >= Number(rawCoupon.minOrderAmount)) {
+          // Atomic increment — only succeeds if still under the usage limit
+          const atomicResult = await db.coupon.updateMany({
+            where: {
+              id: rawCoupon.id,
+              isActive: true,
+              ...(rawCoupon.maxUses !== null
+                ? { usedCount: { lt: rawCoupon.maxUses } }
+                : {}),
+            },
+            data: { usedCount: { increment: 1 } },
+          });
+
+          if (atomicResult.count === 0) {
+            return NextResponse.json(
+              { error: "This coupon has reached its usage limit." },
+              { status: 409 }
+            );
+          }
+
+          coupon = rawCoupon;
+          if (rawCoupon.discountType === "PERCENTAGE") {
+            discountAmount = (planPrice * Number(rawCoupon.discountValue)) / 100;
           } else {
-            discountAmount = Math.min(Number(coupon.discountValue), planPrice);
+            discountAmount = Math.min(Number(rawCoupon.discountValue), planPrice);
           }
           discountAmount = parseFloat(discountAmount.toFixed(2));
         }
@@ -79,7 +99,8 @@ export async function POST(req: NextRequest) {
     }
 
     const TAX_RATE = 0.09;
-    const priceAfterDiscount = Math.max(0, Number(plan.price) - discountAmount);
+    // Enforce minimum $1 order amount — prevent $0 orders via coupon abuse
+    const priceAfterDiscount = Math.max(1, Number(plan.price) - discountAmount);
     const taxAmount = parseFloat((priceAfterDiscount * TAX_RATE).toFixed(2));
     const finalAmount = parseFloat((priceAfterDiscount + taxAmount).toFixed(2));
 
@@ -106,11 +127,6 @@ export async function POST(req: NextRequest) {
         },
       },
     });
-
-    // Increment coupon usage after successful order creation
-    if (coupon && discountAmount > 0) {
-      await db.coupon.update({ where: { id: coupon.id }, data: { usedCount: { increment: 1 } } });
-    }
 
     return NextResponse.json({
       orderId: order.id,

@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getPaymentStatus, PAID_STATUSES, FAILED_STATUSES, NOWPAYMENTS_API_KEY } from "@/lib/payments/nowpayments";
 import { fulfillAndNotify } from "@/lib/fulfillment";
+import { getSession } from "@/lib/session";
 
 /**
  * GET /api/checkout/crypto/status?orderId=<id>
@@ -22,6 +23,14 @@ export async function GET(req: NextRequest) {
 
   const order = await db.order.findUnique({ where: { id: orderId }, include: { esim: true } });
   if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
+
+  // IDOR guard: if the caller is authenticated, they may only view their own orders.
+  // Guest callers (no session) are allowed — they only know the orderId from the
+  // checkout page they just completed, which is sufficient authorization.
+  const session = await getSession();
+  if (session && order.userId && order.userId !== session.userId) {
+    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+  }
 
   // Already fulfilled — short-circuit.
   if (order.esim) {

@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { rateLimit, authLimiter } from "@/lib/rate-limit";
 
 const schema = z.object({
   code: z.string().min(1),
@@ -12,6 +13,12 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
+
+  // Rate-limit coupon validation to prevent enumeration attacks
+  const limit = await rateLimit(req, authLimiter);
+  if (!limit.success) {
+    return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
+  }
 
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {

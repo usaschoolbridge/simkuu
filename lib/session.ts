@@ -6,6 +6,13 @@
 import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 
+if (process.env.NODE_ENV === "production" && !process.env.AUTH_SECRET) {
+  console.error(
+    "[SECURITY] AUTH_SECRET env var is not set. Sessions are signed with the insecure " +
+    "default key. Set AUTH_SECRET to a random 64-char secret immediately."
+  );
+}
+
 const SECRET = process.env.AUTH_SECRET || "simkuu-auth-secret-change-in-production";
 export const SESSION_COOKIE_NAME = "simkuu_session";
 
