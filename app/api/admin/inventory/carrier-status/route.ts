@@ -5,13 +5,14 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
+import { verifyAdminToken } from "@/lib/admin-guard";
 
 const ADMIN_COOKIE = "simkuu_admin_session";
 const SETTINGS_KEY = "carrier_out_of_stock";
 
 async function requireAdmin(): Promise<boolean> {
   const c = await cookies();
-  return c.get(ADMIN_COOKIE)?.value === "authenticated";
+  return verifyAdminToken(c.get(ADMIN_COOKIE)?.value);
 }
 
 type CarrierStatusMap = Record<string, boolean>; // carrierId -> true means OUT OF STOCK
@@ -24,16 +25,16 @@ async function getStatusMap(): Promise<CarrierStatusMap> {
 }
 
 export async function GET() {
-  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
   if (!(await requireAdmin())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
 
   const map = await getStatusMap();
   return NextResponse.json({ carrierStatus: map });
 }
 
 export async function POST(req: NextRequest) {
-  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
   if (!(await requireAdmin())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
 
   const body = await req.json().catch(() => null);
   if (!body || typeof body.carrier !== "string" || typeof body.outOfStock !== "boolean") {

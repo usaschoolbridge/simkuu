@@ -27,10 +27,10 @@ const schema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
-
   const guard = testingGuard(req); // admin + sandbox required
   if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+
+  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
 
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {

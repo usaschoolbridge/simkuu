@@ -17,10 +17,10 @@ import { testingGuard, signWebhookPayload } from "@/lib/payments/testing";
 const schema = z.object({ eventId: z.string().min(1) });
 
 export async function POST(req: NextRequest) {
-  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
-
   const guard = testingGuard(req); // admin + sandbox required
   if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+
+  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
 
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "eventId required" }, { status: 400 });

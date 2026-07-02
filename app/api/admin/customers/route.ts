@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { requireAdmin } from "@/lib/admin-guard";
 
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
   if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
   try {
     const { searchParams } = new URL(req.url);

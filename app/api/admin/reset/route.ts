@@ -3,12 +3,13 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
+import { verifyAdminToken, adminAudit } from "@/lib/admin-guard";
 
 const ADMIN_COOKIE = "simkuu_admin_session";
 
 async function requireAdmin(): Promise<boolean> {
   const c = await cookies();
-  return c.get(ADMIN_COOKIE)?.value === "authenticated";
+  return verifyAdminToken(c.get(ADMIN_COOKIE)?.value);
 }
 
 /**
@@ -18,8 +19,8 @@ async function requireAdmin(): Promise<boolean> {
  * Deleted: Orders, ESims, Invoices, TicketMessages, SupportTickets, non-admin Users, Notifications.
  */
 export async function POST(req: NextRequest) {
-  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
   if (!(await requireAdmin())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
 
   try {
     const body = await req.json().catch(() => ({}));
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest) {
     if (body.confirm !== "RESET") {
       return NextResponse.json({ error: 'Send { "confirm": "RESET" } to confirm' }, { status: 400 });
     }
+    await adminAudit("data_reset", { ip: req.headers.get("x-forwarded-for") ?? "unknown" });
 
     // Delete in dependency order (children before parents)
     const [

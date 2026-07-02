@@ -5,12 +5,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import QRCode from "qrcode";
+import { verifyAdminToken } from "@/lib/admin-guard";
 
 const ADMIN_COOKIE = "simkuu_admin_session";
 
 async function requireAdmin(): Promise<boolean> {
   const c = await cookies();
-  return c.get(ADMIN_COOKIE)?.value === "authenticated";
+  return verifyAdminToken(c.get(ADMIN_COOKIE)?.value);
 }
 
 type Carrier = "TMOBILE" | "VERIZON" | "ATT" | "MVNO";
@@ -22,8 +23,8 @@ const CARRIERS: Carrier[] = ["TMOBILE", "VERIZON", "ATT", "MVNO"];
  * All values come from the real InventoryItem table — no hardcoded values.
  */
 export async function GET() {
-  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
   if (!(await requireAdmin())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
 
   const LOW_STOCK_THRESHOLD = 5;
 
@@ -76,8 +77,8 @@ export async function GET() {
  * - QR code is generated server-side for each valid row
  */
 export async function POST(req: NextRequest) {
-  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
   if (!(await requireAdmin())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
 
   let rows: Record<string, string>[];
   let chunk = 1;

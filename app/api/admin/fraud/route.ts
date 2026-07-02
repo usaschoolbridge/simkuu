@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { cookies } from "next/headers";
+import { verifyAdminToken } from "@/lib/admin-guard";
 
 const DISPOSABLE_DOMAINS = new Set([
   "mailinator.com", "tempmail.com", "throwaway.email", "guerrillamail.com",
@@ -39,7 +40,7 @@ function riskScore(flags: string[]): number {
 
 async function checkAdmin() {
   const jar = await cookies();
-  return jar.get("simkuu_admin_session")?.value === "authenticated";
+  return verifyAdminToken(jar.get("simkuu_admin_session")?.value);
 }
 
 export async function GET(_req: NextRequest) {

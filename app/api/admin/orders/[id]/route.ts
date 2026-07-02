@@ -2,18 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { fulfillAndNotify } from "@/lib/fulfillment";
+import { verifyAdminToken } from "@/lib/admin-guard";
 
 export const runtime = "nodejs";
 
 const ADMIN_COOKIE = "simkuu_admin_session";
 async function requireAdmin(): Promise<boolean> {
   const c = await cookies();
-  return c.get(ADMIN_COOKIE)?.value === "authenticated";
+  return verifyAdminToken(c.get(ADMIN_COOKIE)?.value);
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
   if (!(await requireAdmin())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
 
   try {
     const { id } = await params;

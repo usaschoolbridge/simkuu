@@ -11,10 +11,10 @@ import { getPaymentMode } from "@/lib/payments/provider";
 import { testingGuard, SIMULATABLE_STATUSES } from "@/lib/payments/testing";
 
 export async function GET(req: NextRequest) {
-  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
-
   const guard = testingGuard(req, { requireSandbox: false });
   if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+
+  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
 
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status");
@@ -58,10 +58,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
-
   const guard = testingGuard(req); // sandbox required for destructive cleanup
   if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+
+  if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
 
   try {
     // Only ever deletes sandbox-mode rows — production audit data is untouched.

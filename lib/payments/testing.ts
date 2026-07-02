@@ -7,12 +7,11 @@
 import crypto from "crypto";
 import { NextRequest } from "next/server";
 import { getNowPaymentsProvider, isSandboxMode } from "./provider";
+import { verifyAdminToken, ADMIN_COOKIE_NAME } from "@/lib/admin-guard";
 
-export const ADMIN_COOKIE_NAME = "simkuu_admin_session";
-
-/** True when the request carries a valid admin session cookie. */
+/** True when the request carries a valid, unexpired admin session token. */
 export function isAdminRequest(req: NextRequest): boolean {
-  return req.cookies.get(ADMIN_COOKIE_NAME)?.value === "authenticated";
+  return verifyAdminToken(req.cookies.get(ADMIN_COOKIE_NAME)?.value);
 }
 
 /**
