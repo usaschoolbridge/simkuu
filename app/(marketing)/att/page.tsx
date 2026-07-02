@@ -33,11 +33,6 @@ export default function ATTPage() {
         { icon: "Signal", title: "Deep Urban Coverage", body: "AT&T excels in dense cities, penetrating buildings, subways, and stadiums better than any other carrier." },
         { icon: "Globe", title: "5G+ Nationwide", body: "AT&T's 5G+ (C-Band) brings mid-band 5G speeds to millions of Americans in hundreds of cities." },
       ]}
-      plans={[
-        { name: "Starter", price: 16, data: "5GB", features: ["AT&T 5G", "Wi-Fi calling", "Unlimited SMS", "Unlimited calls"] },
-        { name: "Standard", price: 30, data: "Unlimited", features: ["AT&T 5G+", "15GB hotspot", "HD streaming", "Mobile share", "Unlimited calls"] },
-        { name: "Premium", price: 50, data: "Unlimited+", badge: "Best Value", features: ["5G+ priority always", "Unlimited hotspot", "4K streaming", "International calling", "VoIP"] },
-      ]}
     />
   );
 }

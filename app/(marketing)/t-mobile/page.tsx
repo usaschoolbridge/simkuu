@@ -33,11 +33,6 @@ export default function TMobilePage() {
         { icon: "Zap", title: "Fastest Speeds", body: "Consistently ranked #1 in 5G speed by independent testers. Stream, download, and game without limits." },
         { icon: "Globe", title: "Deep Rural Reach", body: "Mid-band and low-band spectrum combines to deliver coverage even in hard-to-reach rural areas." },
       ]}
-      plans={[
-        { name: "Starter", price: 15, data: "5GB", features: ["T-Mobile 5G", "Wi-Fi calling", "Unlimited SMS", "Unlimited calls"] },
-        { name: "Standard", price: 25, data: "Unlimited", badge: "Most Popular", features: ["T-Mobile 5G Ultra", "30GB hotspot", "HD streaming", "Priority data", "Mobile hotspot"] },
-        { name: "Premium", price: 40, data: "Unlimited+", features: ["Priority always", "Unlimited hotspot", "4K streaming", "International SMS", "VoIP support"] },
-      ]}
     />
   );
 }

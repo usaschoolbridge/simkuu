@@ -33,11 +33,6 @@ export default function VerizonPage() {
         { icon: "Zap", title: "Ultra Wideband 5G", body: "Experience multi-gigabit speeds with Verizon's C-Band and mmWave 5G in hundreds of cities." },
         { icon: "Signal", title: "99.9% Uptime", body: "Verizon's network redundancy ensures you stay connected even during outages and extreme weather." },
       ]}
-      plans={[
-        { name: "Starter", price: 18, data: "5GB", features: ["Verizon 5G Nationwide", "Wi-Fi calling", "Unlimited SMS", "Unlimited calls"] },
-        { name: "Standard", price: 35, data: "Unlimited", badge: "Best Network", features: ["5G Ultra Wideband", "25GB hotspot", "Premium data priority", "HD streaming", "Mobile share"] },
-        { name: "Premium", price: 55, data: "Unlimited+", features: ["Always priority", "Unlimited UWB 5G", "Unlimited hotspot", "4K streaming", "Apple One trial"] },
-      ]}
     />
   );
 }

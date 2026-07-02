@@ -1,12 +1,14 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Check, Signal, ArrowRight, Shield, Zap, Globe } from "lucide-react";
+import { Check, Signal, ArrowRight, Shield, Zap, Globe, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Reveal, StaggerReveal } from "@/components/motion/reveal";
 import { fadeUp } from "@/animations/variants";
 import { Tilt } from "@/components/motion/tilt";
+import { useCurrency } from "@/contexts/currency";
 
 interface CarrierPageProps {
   name: string;
@@ -16,17 +18,64 @@ interface CarrierPageProps {
   coverage: string;
   network: string;
   heroStat: { value: string; label: string };
-  plans: { name: string; price: number; data: string; features: string[]; badge?: string }[];
   highlights: { icon: string; title: string; body: string }[];
   slug: string;
 }
 
+/** Real plan shape from /api/plans (Prisma serializes Decimal as string). */
+interface ApiPlan {
+  id: string;
+  name: string;
+  carrierId: string;
+  price: string | number;
+  originalPrice: string | number | null;
+  data: string;
+  fiveG: boolean;
+  hotspot: boolean;
+  features: string[];
+  badge: string | null;
+  sortOrder: number;
+  inStock?: boolean;
+}
+
 const ICON_MAP: Record<string, React.ElementType> = { Signal, Shield, Zap, Globe };
+
+/** Map a carrier page slug to the DB CarrierId enum. */
+const SLUG_TO_CARRIER: Record<string, string> = {
+  tmobile: "TMOBILE",
+  "t-mobile": "TMOBILE",
+  verizon: "VERIZON",
+  att: "ATT",
+  mvno: "MVNO",
+};
 
 export function CarrierPage({
   name, color, description, tagline, coverage, network,
-  heroStat, plans, highlights, slug,
+  heroStat, highlights, slug,
 }: CarrierPageProps) {
+  const [plans, setPlans] = useState<ApiPlan[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { format } = useCurrency();
+
+  useEffect(() => {
+    let active = true;
+    const carrierId = SLUG_TO_CARRIER[slug.toLowerCase()];
+    (async () => {
+      try {
+        const res = await fetch("/api/plans", { cache: "no-store" });
+        const data = await res.json();
+        const all: ApiPlan[] = Array.isArray(data) ? data : [];
+        const mine = carrierId ? all.filter((p) => p.carrierId === carrierId) : all;
+        if (active) setPlans(mine.sort((a, b) => a.sortOrder - b.sortOrder));
+      } catch {
+        if (active) setPlans([]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [slug]);
+
   return (
     <>
       {/* ---- Hero ---- */}
@@ -118,51 +167,70 @@ export function CarrierPage({
             <h2 className="font-display text-4xl font-black text-black mb-3">{name} Plans</h2>
             <p className="text-black/50 text-lg">Choose your perfect plan — no contracts, ever</p>
           </Reveal>
-          <StaggerReveal className="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl mx-auto">
-            {plans.map((plan, i) => (
-              <motion.div key={plan.name} variants={fadeUp}>
-                <Tilt maxTilt={5} className="h-full">
-                  <div className={`relative rounded-2xl bg-white border h-full flex flex-col overflow-hidden transition-shadow duration-300 hover:shadow-xl ${plan.badge ? "border-transparent shadow-lg" : "border-black/[0.06] shadow-sm"}`}>
-                    {plan.badge && (
-                      <div className="absolute inset-0 rounded-2xl -z-10" style={{ background: `linear-gradient(135deg, ${color}40, ${color}20)` }} />
-                    )}
-                    <div className="h-0.5" style={{ background: color }} />
-                    {plan.badge && (
-                      <div className="absolute top-4 right-4 px-2.5 py-1 rounded-full text-[11px] font-bold text-white" style={{ background: color }}>
-                        {plan.badge}
+          {loading ? (
+            <div className="flex items-center justify-center py-16 gap-2 text-black/30">
+              <Loader2 className="w-6 h-6 animate-spin" /> Loading plans…
+            </div>
+          ) : plans.length === 0 ? (
+            <p className="text-center text-black/40 py-12">
+              No {name} plans available right now. <Link href="/plans" className="underline">Browse all plans</Link>.
+            </p>
+          ) : (
+            <StaggerReveal className="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-4xl mx-auto">
+              {plans.map((plan) => {
+                const price = Number(plan.price);
+                const soldOut = plan.inStock === false;
+                const features =
+                  plan.features && plan.features.length > 0
+                    ? plan.features
+                    : [`${plan.data} data`, plan.fiveG ? "5G network" : "4G LTE", plan.hotspot ? "Mobile hotspot" : "No contract"];
+                return (
+                  <motion.div key={plan.id} variants={fadeUp}>
+                    <Tilt maxTilt={5} className="h-full">
+                      <div className={`relative rounded-2xl bg-white border h-full flex flex-col overflow-hidden transition-shadow duration-300 hover:shadow-xl ${plan.badge ? "border-transparent shadow-lg" : "border-black/[0.06] shadow-sm"}`}>
+                        {plan.badge && (
+                          <div className="absolute inset-0 rounded-2xl -z-10" style={{ background: `linear-gradient(135deg, ${color}40, ${color}20)` }} />
+                        )}
+                        <div className="h-0.5" style={{ background: color }} />
+                        {plan.badge && (
+                          <div className="absolute top-4 right-4 px-2.5 py-1 rounded-full text-[11px] font-bold text-white" style={{ background: color }}>
+                            {plan.badge}
+                          </div>
+                        )}
+                        <div className="p-6 flex flex-col flex-1">
+                          <h3 className="font-display font-bold text-xl text-black mb-1">{plan.name}</h3>
+                          <div className="rounded-xl px-3 py-2 bg-black/[0.03] mb-4 mt-2">
+                            <div className="text-[10px] text-black/30 uppercase tracking-wider">Data</div>
+                            <div className="font-display text-2xl font-black text-black">{plan.data}</div>
+                          </div>
+                          <div className="flex items-baseline gap-1 mb-5">
+                            <span className="font-display text-4xl font-black text-black">{format(price)}</span>
+                            <span className="text-black/40">/mo</span>
+                          </div>
+                          <ul className="space-y-2.5 mb-6 flex-1">
+                            {features.map((f) => (
+                              <li key={f} className="flex items-center gap-2.5 text-sm text-black/60">
+                                <Check className="w-3.5 h-3.5 shrink-0" style={{ color }} />
+                                {f}
+                              </li>
+                            ))}
+                          </ul>
+                          <Link href={soldOut ? "#" : `/checkout?planId=${encodeURIComponent(plan.id)}`} aria-disabled={soldOut}>
+                            <Button className="w-full" size="default"
+                              disabled={soldOut}
+                              style={{ background: plan.badge && !soldOut ? color : undefined }}
+                              variant={plan.badge ? "primary" : "outline"}>
+                              {soldOut ? "Sold out" : `Get ${plan.name}`}
+                            </Button>
+                          </Link>
+                        </div>
                       </div>
-                    )}
-                    <div className="p-6 flex flex-col flex-1">
-                      <h3 className="font-display font-bold text-xl text-black mb-1">{plan.name}</h3>
-                      <div className="rounded-xl px-3 py-2 bg-black/[0.03] mb-4 mt-2">
-                        <div className="text-[10px] text-black/30 uppercase tracking-wider">Data</div>
-                        <div className="font-display text-2xl font-black text-black">{plan.data}</div>
-                      </div>
-                      <div className="flex items-baseline gap-1 mb-5">
-                        <span className="font-display text-4xl font-black text-black">${plan.price}</span>
-                        <span className="text-black/40">/mo</span>
-                      </div>
-                      <ul className="space-y-2.5 mb-6 flex-1">
-                        {plan.features.map((f) => (
-                          <li key={f} className="flex items-center gap-2.5 text-sm text-black/60">
-                            <Check className="w-3.5 h-3.5 shrink-0" style={{ color }} />
-                            {f}
-                          </li>
-                        ))}
-                      </ul>
-                      <Link href="/checkout">
-                        <Button className="w-full" size="default"
-                          style={{ background: plan.badge ? color : undefined }}
-                          variant={plan.badge ? "primary" : "outline"}>
-                          Get {plan.name}
-                        </Button>
-                      </Link>
-                    </div>
-                  </div>
-                </Tilt>
-              </motion.div>
-            ))}
-          </StaggerReveal>
+                    </Tilt>
+                  </motion.div>
+                );
+              })}
+            </StaggerReveal>
+          )}
         </div>
       </section>
 

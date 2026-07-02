@@ -30,7 +30,7 @@ export default function CheckoutCancel() {
           <p className="text-black/50 mb-8">No worries — your order was not placed and no charge was made.</p>
 
           <div className="flex flex-col gap-3">
-            <Link href="/checkout"
+            <Link href="/plans"
               className="flex items-center justify-center gap-2 py-3.5 rounded-xl bg-black text-white font-semibold text-sm hover:bg-black/80 transition-all shadow-md shadow-black/10">
               Try again
             </Link>

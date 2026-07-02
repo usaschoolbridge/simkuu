@@ -33,11 +33,6 @@ export default function MVNOPage() {
         { icon: "Shield", title: "No Contracts Ever", body: "Month-to-month only. Cancel or change plans instantly from your dashboard with zero fees." },
         { icon: "Globe", title: "Best Value in USA", body: "Save up to 50% compared to T-Mobile retail pricing with no sacrifice in network quality." },
       ]}
-      plans={[
-        { name: "Starter", price: 10, data: "5GB", badge: "Best Value", features: ["T-Mobile 5G", "Wi-Fi calling", "Unlimited SMS", "Unlimited calls"] },
-        { name: "Standard", price: 18, data: "15GB", features: ["T-Mobile 5G", "10GB hotspot", "HD streaming", "Unlimited calls"] },
-        { name: "Unlimited", price: 25, data: "Unlimited", features: ["T-Mobile 5G priority", "25GB hotspot", "HD streaming", "Mobile hotspot", "Unlimited calls"] },
-      ]}
     />
   );
 }
