@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Wifi, Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
 
 export default function AdminLoginPage() {
@@ -9,7 +8,6 @@ export default function AdminLoginPage() {
   const [show, setShow] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,8 +22,11 @@ export default function AdminLoginPage() {
       });
 
       if (res.ok) {
-        router.push("/admin");
-        router.refresh();
+        // Hard navigation guarantees the freshly-set admin cookie is sent to a
+        // clean server render, so the /admin route gate can't bounce us back.
+        window.location.href = "/admin";
+      } else if (res.status === 429) {
+        setError("Too many attempts. Please wait about a minute, then try once more.");
       } else {
         setError("Incorrect password. Please try again.");
       }
