@@ -2,10 +2,12 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { sendEmailVerification } from "@/lib/email";
 import { cookies } from "next/headers";
+import { rateLimit, authLimiter } from "@/lib/rate-limit";
 
 const signupSchema = z
   .object({
@@ -24,11 +26,21 @@ const signupSchema = z
     path: ["confirmPassword"],
   });
 
+/** Cryptographically secure 6-digit OTP */
 function generateOTP(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(crypto.randomInt(100000, 999999));
 }
 
 export async function POST(req: NextRequest) {
+  // ── Rate limit ────────────────────────────────────────────────────────────
+  const limit = await rateLimit(req, authLimiter);
+  if (!limit.success) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a minute and try again." },
+      { status: 429 }
+    );
+  }
+
   try {
     if (!db) {
       return NextResponse.json(
@@ -56,7 +68,6 @@ export async function POST(req: NextRequest) {
     if (existing) {
       // If user exists but is not verified, allow re-sending OTP
       if (!existing.emailVerified) {
-        // Delete old tokens and send a new OTP
         await db.verificationToken.deleteMany({ where: { identifier: normalizedEmail } });
         const otp = generateOTP();
         await db.verificationToken.create({
@@ -93,12 +104,12 @@ export async function POST(req: NextRequest) {
     const hashedPassword = await bcrypt.hash(password, 12);
 
     // Create user WITHOUT setting emailVerified
-    const user = await db.user.create({
+    await db.user.create({
       data: {
         name: fullName,
         email: normalizedEmail,
         hashedPassword,
-        emailVerified: null, // Must verify email before logging in
+        emailVerified: null,
         ...(referredById ? { referredById } : {}),
       },
     });
@@ -110,22 +121,19 @@ export async function POST(req: NextRequest) {
       data: {
         identifier: normalizedEmail,
         token: otp,
-        expires: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        expires: new Date(Date.now() + 10 * 60 * 1000),
       },
     });
 
-    // Send verification email — if this fails, still return success so user knows to check email
     const emailResult = await sendEmailVerification(normalizedEmail, otp);
     if (!emailResult.success) {
       console.error("[signup] Failed to send verification email:", emailResult.error);
     }
 
-    // Do NOT set session cookie — user must verify email first
     const res = NextResponse.json(
       { requiresVerification: true, email: normalizedEmail },
       { status: 201 }
     );
-    // Clear referral cookie
     res.cookies.set("simkuu_referral", "", { maxAge: 0, path: "/" });
     return res;
   } catch (e) {

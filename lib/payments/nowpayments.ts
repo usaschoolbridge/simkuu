@@ -1,19 +1,57 @@
 import crypto from "crypto";
+import { getNowPaymentsProvider } from "./provider";
 
-const API_BASE = "https://api.nowpayments.io/v1";
+// ─────────────────────────────────────────────────────────────────────────────
+// Backward-compatible exports (used as guards in existing route files)
+// ─────────────────────────────────────────────────────────────────────────────
 
-export const NOWPAYMENTS_API_KEY = process.env.NOWPAYMENTS_API_KEY ?? "";
-export const NOWPAYMENTS_IPN_SECRET = process.env.NOWPAYMENTS_IPN_SECRET ?? "";
+/** The active API key (sandbox or production depending on NOWPAYMENTS_MODE). */
+export const NOWPAYMENTS_API_KEY =
+  process.env.NOWPAYMENTS_MODE === "sandbox"
+    ? (process.env.NOWPAYMENTS_SANDBOX_API_KEY ?? "")
+    : (process.env.NOWPAYMENTS_PRODUCTION_API_KEY ?? process.env.NOWPAYMENTS_API_KEY ?? "");
+
+/** The active IPN secret (sandbox or production depending on NOWPAYMENTS_MODE). */
+export const NOWPAYMENTS_IPN_SECRET =
+  process.env.NOWPAYMENTS_MODE === "sandbox"
+    ? (process.env.NOWPAYMENTS_SANDBOX_IPN_SECRET ?? "")
+    : (process.env.NOWPAYMENTS_PRODUCTION_IPN_SECRET ?? process.env.NOWPAYMENTS_IPN_SECRET ?? "");
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal helpers — always use provider() so env changes are picked up
+// ─────────────────────────────────────────────────────────────────────────────
+
+function npHeaders() {
+  const p = getNowPaymentsProvider();
+  return { "Content-Type": "application/json", "x-api-key": p.apiKey };
+}
+
+async function npGet<T>(path: string): Promise<T> {
+  const p = getNowPaymentsProvider();
+  const res = await fetch(`${p.apiBase}${path}`, {
+    headers: npHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`NOWPayments [${p.mode}] GET ${path} → ${res.status}: ${text}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Invoice (hosted redirect — kept for backward compat)
+// ─────────────────────────────────────────────────────────────────────────────
 
 export interface CreateInvoiceParams {
   amount: number;
-  currency: string;   // "usd"
+  currency: string;
   orderId: string;
   description: string;
   callbackUrl: string;
   successUrl: string;
   cancelUrl: string;
-  payCurrency?: string; // pre-selected coin, e.g. "btc", "usdttrc20"
+  payCurrency?: string;
 }
 
 export interface NOWPaymentsInvoice {
@@ -28,12 +66,10 @@ export interface NOWPaymentsInvoice {
 export async function createInvoice(
   params: CreateInvoiceParams
 ): Promise<NOWPaymentsInvoice> {
-  const res = await fetch(`${API_BASE}/invoice`, {
+  const p = getNowPaymentsProvider();
+  const res = await fetch(`${p.apiBase}/invoice`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": NOWPAYMENTS_API_KEY,
-    },
+    headers: npHeaders(),
     body: JSON.stringify({
       price_amount: params.amount,
       price_currency: params.currency,
@@ -48,7 +84,7 @@ export async function createInvoice(
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`NOWPayments API error ${res.status}: ${err}`);
+    throw new Error(`NOWPayments [${p.mode}] invoice ${res.status}: ${err}`);
   }
 
   const data = await res.json() as {
@@ -70,15 +106,22 @@ export async function createInvoice(
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// IPN Signature verification
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
- * Verify NOWPayments IPN webhook signature.
- * HMAC-SHA512 of the JSON-sorted body using the IPN secret.
+ * Verify a NOWPayments IPN webhook signature.
+ * Automatically uses sandbox or production IPN secret based on NOWPAYMENTS_MODE.
  */
 export function verifyWebhookSignature(
   payload: Record<string, unknown>,
   receivedSig: string
 ): boolean {
-  if (!receivedSig || !NOWPAYMENTS_IPN_SECRET) return false;
+  const p = getNowPaymentsProvider();
+  const secret = p.ipnSecret;
+
+  if (!receivedSig || !secret) return false;
 
   // Sort keys alphabetically as required by NOWPayments
   const sortedPayload = Object.keys(payload)
@@ -88,7 +131,7 @@ export function verifyWebhookSignature(
       return acc;
     }, {});
 
-  const hmac = crypto.createHmac("sha512", NOWPAYMENTS_IPN_SECRET);
+  const hmac = crypto.createHmac("sha512", secret);
   hmac.update(JSON.stringify(sortedPayload));
   const expected = hmac.digest("hex");
 
@@ -102,56 +145,52 @@ export function verifyWebhookSignature(
   }
 }
 
-// NOWPayments payment statuses
-// "partially_paid" intentionally excluded — customer sent less than required,
-// do NOT fulfill. "sending" means NOWPayments is forwarding funds to merchant (confirmed).
+// ─────────────────────────────────────────────────────────────────────────────
+// Payment status constants
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const PAID_STATUSES = ["finished", "confirmed", "sending"];
 export const FAILED_STATUSES = ["failed", "refunded", "expired"];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EMBEDDED PAYMENT API (no hosted-invoice redirect)
+// Coin metadata
 // ─────────────────────────────────────────────────────────────────────────────
 
-function npHeaders() {
-  return { "Content-Type": "application/json", "x-api-key": NOWPAYMENTS_API_KEY };
-}
-
-async function npGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { headers: npHeaders(), cache: "no-store" });
-  if (!res.ok) throw new Error(`NOWPayments GET ${path} → ${res.status}: ${await res.text()}`);
-  return res.json() as Promise<T>;
-}
-
-/**
- * Coin display metadata. NOWPayments uses provider-specific codes (e.g.
- * `usdttrc20`) — we map them to a friendly name, network label, and the
- * cryptocurrency-icons logo symbol used by the UI.
- */
 export const COIN_META: Record<string, { name: string; network: string; logo: string }> = {
-  btc:        { name: "Bitcoin",      network: "Bitcoin",          logo: "btc" },
-  eth:        { name: "Ethereum",     network: "Ethereum (ERC20)", logo: "eth" },
-  usdttrc20:  { name: "USDT",         network: "Tron (TRC20)",     logo: "usdt" },
-  usdterc20:  { name: "USDT",         network: "Ethereum (ERC20)", logo: "usdt" },
-  usdtbsc:    { name: "USDT",         network: "BNB Chain (BEP20)",logo: "usdt" },
-  usdcerc20:  { name: "USDC",         network: "Ethereum (ERC20)", logo: "usdc" },
-  usdc:       { name: "USDC",         network: "Ethereum (ERC20)", logo: "usdc" },
-  ltc:        { name: "Litecoin",     network: "Litecoin",         logo: "ltc" },
-  sol:        { name: "Solana",       network: "Solana",           logo: "sol" },
-  bnbbsc:     { name: "BNB",          network: "BNB Chain (BEP20)",logo: "bnb" },
-  bnbmainnet: { name: "BNB",          network: "BNB Beacon Chain", logo: "bnb" },
-  doge:       { name: "Dogecoin",     network: "Dogecoin",         logo: "doge" },
-  trx:        { name: "TRON",         network: "Tron",             logo: "trx" },
-  xmr:        { name: "Monero",       network: "Monero",           logo: "xmr" },
-  ton:        { name: "Toncoin",      network: "TON",              logo: "ton" },
-  matic:      { name: "Polygon",      network: "Polygon",          logo: "matic" },
+  btc:        { name: "Bitcoin",      network: "Bitcoin",           logo: "btc"  },
+  eth:        { name: "Ethereum",     network: "Ethereum (ERC20)",  logo: "eth"  },
+  usdttrc20:  { name: "USDT",         network: "Tron (TRC20)",      logo: "usdt" },
+  usdterc20:  { name: "USDT",         network: "Ethereum (ERC20)",  logo: "usdt" },
+  usdtbsc:    { name: "USDT",         network: "BNB Chain (BEP20)", logo: "usdt" },
+  usdcerc20:  { name: "USDC",         network: "Ethereum (ERC20)",  logo: "usdc" },
+  usdc:       { name: "USDC",         network: "Ethereum (ERC20)",  logo: "usdc" },
+  ltc:        { name: "Litecoin",     network: "Litecoin",          logo: "ltc"  },
+  sol:        { name: "Solana",       network: "Solana",            logo: "sol"  },
+  bnbbsc:     { name: "BNB",          network: "BNB Chain (BEP20)", logo: "bnb"  },
+  bnbmainnet: { name: "BNB",          network: "BNB Beacon Chain",  logo: "bnb"  },
+  doge:       { name: "Dogecoin",     network: "Dogecoin",          logo: "doge" },
+  trx:        { name: "TRON",         network: "Tron",              logo: "trx"  },
+  xmr:        { name: "Monero",       network: "Monero",            logo: "xmr"  },
+  ton:        { name: "Toncoin",      network: "TON",               logo: "ton"  },
+  matic:      { name: "Polygon",      network: "Polygon",           logo: "matic"},
 };
 
 export function coinMeta(code: string) {
   const c = code.toLowerCase();
-  return COIN_META[c] ?? { name: code.toUpperCase(), network: code.toUpperCase(), logo: c.replace(/[0-9].*$/, "") };
+  return (
+    COIN_META[c] ?? {
+      name: code.toUpperCase(),
+      network: code.toUpperCase(),
+      logo: c.replace(/[0-9].*$/, ""),
+    }
+  );
 }
 
-/** The coins enabled on this NOWPayments merchant account. */
+// ─────────────────────────────────────────────────────────────────────────────
+// Embedded payment API
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The coins enabled on this merchant account. */
 export async function getAvailableCoins(): Promise<string[]> {
   const data = await npGet<{ selectedCurrencies?: string[] }>("/merchant/coins");
   return (data.selectedCurrencies ?? []).map((c) => c.toLowerCase());
@@ -165,10 +204,17 @@ export interface EstimateResult {
 }
 
 /** How much crypto is needed to cover `amount` USD. */
-export async function getEstimate(amount: number, payCurrency: string): Promise<EstimateResult> {
+export async function getEstimate(
+  amount: number,
+  payCurrency: string
+): Promise<EstimateResult> {
   const data = await npGet<{
-    currency_from: string; amount_from: number; currency_to: string; estimated_amount: number;
+    currency_from: string;
+    amount_from: number;
+    currency_to: string;
+    estimated_amount: number;
   }>(`/estimate?amount=${amount}&currency_from=usd&currency_to=${payCurrency.toLowerCase()}`);
+
   return {
     payCurrency: data.currency_to,
     estimatedAmount: data.estimated_amount,
@@ -178,10 +224,10 @@ export async function getEstimate(amount: number, payCurrency: string): Promise<
 }
 
 export interface CreatePaymentParams {
-  amount: number;        // USD
+  amount: number;
   orderId: string;
   description: string;
-  payCurrency: string;   // e.g. "btc", "usdttrc20"
+  payCurrency: string;
   callbackUrl: string;
 }
 
@@ -194,16 +240,19 @@ export interface CryptoPaymentDetails {
   priceAmount: number;
   priceCurrency: string;
   network: string;
-  payinExtraId: string | null;  // memo/tag for coins that need it
+  payinExtraId: string | null;
   expiresAt: string | null;
 }
 
 /**
- * Create an on-chain payment. Returns the deposit address + exact amount the
- * buyer must send — displayed inside our checkout, no redirect.
+ * Create an on-chain payment. Returns the deposit address + exact amount.
+ * Uses sandbox or production API based on NOWPAYMENTS_MODE.
  */
-export async function createPayment(params: CreatePaymentParams): Promise<CryptoPaymentDetails> {
-  const res = await fetch(`${API_BASE}/payment`, {
+export async function createPayment(
+  params: CreatePaymentParams
+): Promise<CryptoPaymentDetails> {
+  const p = getNowPaymentsProvider();
+  const res = await fetch(`${p.apiBase}/payment`, {
     method: "POST",
     headers: npHeaders(),
     body: JSON.stringify({
@@ -216,12 +265,26 @@ export async function createPayment(params: CreatePaymentParams): Promise<Crypto
       is_fee_paid_by_user: true,
     }),
   });
-  if (!res.ok) throw new Error(`NOWPayments create payment ${res.status}: ${await res.text()}`);
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`NOWPayments [${p.mode}] create payment ${res.status}: ${text}`);
+  }
+
   const d = await res.json() as {
-    payment_id: string | number; payment_status: string; pay_address: string;
-    pay_amount: number; pay_currency: string; price_amount: number; price_currency: string;
-    network?: string; payin_extra_id?: string | null; expiration_estimate_date?: string; valid_until?: string;
+    payment_id: string | number;
+    payment_status: string;
+    pay_address: string;
+    pay_amount: number;
+    pay_currency: string;
+    price_amount: number;
+    price_currency: string;
+    network?: string;
+    payin_extra_id?: string | null;
+    expiration_estimate_date?: string;
+    valid_until?: string;
   };
+
   return {
     paymentId: String(d.payment_id),
     paymentStatus: d.payment_status,
@@ -249,12 +312,21 @@ export interface PaymentStatusResult {
 }
 
 /** Poll a single payment's live status. */
-export async function getPaymentStatus(paymentId: string): Promise<PaymentStatusResult> {
+export async function getPaymentStatus(
+  paymentId: string
+): Promise<PaymentStatusResult> {
   const d = await npGet<{
-    payment_id: string | number; payment_status: string; pay_currency: string;
-    actually_paid?: number; pay_amount?: number; outcome_amount?: number;
-    network?: string; order_id?: string; payin_hash?: string | null;
+    payment_id: string | number;
+    payment_status: string;
+    pay_currency: string;
+    actually_paid?: number;
+    pay_amount?: number;
+    outcome_amount?: number;
+    network?: string;
+    order_id?: string;
+    payin_hash?: string | null;
   }>(`/payment/${paymentId}`);
+
   return {
     paymentId: String(d.payment_id),
     paymentStatus: d.payment_status,

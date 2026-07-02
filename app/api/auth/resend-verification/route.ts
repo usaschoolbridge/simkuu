@@ -1,18 +1,30 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { sendEmailVerification } from "@/lib/email";
+import { rateLimit, authLimiter } from "@/lib/rate-limit";
 
 const schema = z.object({ email: z.string().email() });
 
+/** Cryptographically secure 6-digit OTP */
 function generateOTP(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(crypto.randomInt(100000, 999999));
 }
 
 export async function POST(req: NextRequest) {
   if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
+
+  // ── Rate limit ────────────────────────────────────────────────────────────
+  const limit = await rateLimit(req, authLimiter);
+  if (!limit.success) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a minute and try again." },
+      { status: 429 }
+    );
+  }
 
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
@@ -33,7 +45,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
-    // Rate limit: check if a token was created recently (expires > 9.5 min from now = created < 30s ago)
+    // Per-email cooldown: only allow resend once per 60 seconds
     const existing = await db.verificationToken.findFirst({
       where: { identifier: normalizedEmail },
     });
@@ -49,7 +61,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Delete old tokens and create a new OTP
     await db.verificationToken.deleteMany({ where: { identifier: normalizedEmail } });
     const otp = generateOTP();
     await db.verificationToken.create({

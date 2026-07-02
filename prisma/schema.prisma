@@ -464,3 +464,41 @@ model SiteSettings {
   value      Json
   updatedAt  DateTime @updatedAt
 }
+
+// ─── Payment sandbox / audit logging ─────────────────────────────────────────
+
+model PaymentLog {
+  id         String   @id @default(cuid())
+  paymentId  String?
+  orderId    String?
+  mode       String   // "sandbox" | "production"
+  event      String   // "payment_created" | "status_polled" | "webhook_received" | "fulfillment" | "error"
+  status     String?  // payment_status at time of event
+  payload    Json?    // full request / response snapshot
+  error      String?
+  durationMs Int?
+  createdAt  DateTime @default(now())
+
+  @@index([paymentId])
+  @@index([orderId])
+  @@index([mode, createdAt])
+  @@index([event])
+}
+
+model WebhookEvent {
+  id          String    @id @default(cuid())
+  paymentId   String
+  orderId     String?
+  mode        String    // "sandbox" | "production"
+  status      String?   // payment_status from payload
+  payload     Json
+  sigValid    Boolean
+  isDuplicate Boolean   @default(false)
+  replayOf    String?   // id of original event when replayed
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([paymentId])
+  @@index([mode, createdAt])
+  @@index([isDuplicate])
+}

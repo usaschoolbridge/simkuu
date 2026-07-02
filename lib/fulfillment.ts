@@ -15,6 +15,7 @@
 import QRCode from "qrcode";
 import { db } from "@/lib/db";
 import { sendOrderConfirmation } from "@/lib/email";
+import { isSandboxMode } from "@/lib/payments/provider";
 
 export type FulfillmentResult =
   | {
@@ -78,6 +79,29 @@ export async function fulfillOrder(orderId: string): Promise<FulfillmentResult> 
       // Re-check inside the transaction for idempotency under concurrency.
       const dup = await tx.eSim.findUnique({ where: { orderId } });
       if (dup) return { kind: "dup" as const, esimId: dup.id };
+
+      // Sandbox mode never consumes real inventory: issue a clearly-marked
+      // synthetic test eSIM instead so end-to-end testing is fully isolated.
+      if (isSandboxMode()) {
+        const fakeIccid = `SANDBOX${Date.now()}${Math.floor(Math.random() * 1000)}`;
+        const fakeLpa = `LPA:1$sandbox.simkuu.test$SANDBOX-${order.id.slice(-8).toUpperCase()}`;
+        const qrCode = await generateQrDataUrl(fakeLpa);
+        const esim = await tx.eSim.create({
+          data: {
+            userId: order.userId,
+            orderId: order.id,
+            planId: order.planId,
+            carrier: order.plan.carrierId,
+            iccid: fakeIccid,
+            qrCode,
+            activationCode: fakeLpa,
+            status: "ACTIVE",
+            activatedAt: new Date(),
+          },
+        });
+        await tx.order.update({ where: { id: order.id }, data: { status: "ACTIVE" } });
+        return { kind: "created" as const, esimId: esim.id };
+      }
 
       // Lock the first AVAILABLE inventory row for this plan (or carrier
       // fallback) without blocking on rows other workers already hold.

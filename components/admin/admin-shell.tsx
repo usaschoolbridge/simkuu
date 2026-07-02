@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, ShoppingBag, Users, Package, Tag, LifeBuoy,
   BarChart2, ShieldAlert, Menu, X, ChevronRight, Bell, Settings,
-  Wifi, LogOut, Zap, Globe, ChevronDown, Boxes
+  Wifi, LogOut, Zap, Globe, ChevronDown, Boxes, FlaskConical
 } from "lucide-react";
 
 type NavItem = { label: string; href: string; icon: React.ComponentType<{ className?: string }>; badge?: string; badgeColor?: string };
@@ -37,6 +37,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Support", href: "/admin/support", icon: LifeBuoy, badge: "3" },
       { label: "Fraud Detection", href: "/admin/fraud", icon: ShieldAlert, badge: "2", badgeColor: "bg-red-500" },
+      { label: "Payment Testing", href: "/admin/payment-testing", icon: FlaskConical },
     ],
   },
 ];

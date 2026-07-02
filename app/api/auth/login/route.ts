@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { signToken, createSessionCookie } from "@/lib/session";
+import { rateLimit, authLimiter } from "@/lib/rate-limit";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -13,6 +14,15 @@ const loginSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  // ── Rate limit: 5 attempts per minute per IP ─────────────────────────────
+  const limit = await rateLimit(req, authLimiter);
+  if (!limit.success) {
+    return NextResponse.json(
+      { error: "Too many login attempts. Please wait a minute and try again." },
+      { status: 429 }
+    );
+  }
+
   try {
     if (!db) {
       return NextResponse.json(
@@ -34,6 +44,8 @@ export async function POST(req: NextRequest) {
 
     const user = await db.user.findUnique({ where: { email: normalizedEmail } });
     if (!user || !user.hashedPassword) {
+      // Constant-time response to prevent timing attacks / email enumeration
+      await bcrypt.compare(password, "$2a$12$dummy.hash.to.prevent.timing.attack.padding");
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }

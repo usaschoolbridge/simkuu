@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { signToken, createSessionCookie } from "@/lib/session";
 import { sendWelcomeEmail } from "@/lib/email";
+import { rateLimit, authLimiter } from "@/lib/rate-limit";
 
 const schema = z.object({
   email: z.string().email(),
@@ -13,6 +14,15 @@ const schema = z.object({
 
 export async function POST(req: NextRequest) {
   if (!db) return NextResponse.json({ error: "DB not configured" }, { status: 503 });
+
+  // ── Rate limit: prevent OTP brute force (6-digit = 1M combos) ───────────
+  const limit = await rateLimit(req, authLimiter);
+  if (!limit.success) {
+    return NextResponse.json(
+      { error: "Too many attempts. Please wait a minute and try again." },
+      { status: 429 }
+    );
+  }
 
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
@@ -34,7 +44,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (record.expires < new Date()) {
-      await db.verificationToken.delete({ where: { identifier_token: { identifier: normalizedEmail, token: otp } } });
+      await db.verificationToken.delete({
+        where: { identifier_token: { identifier: normalizedEmail, token: otp } },
+      });
       return NextResponse.json({ error: "This code has expired. Please request a new one." }, { status: 400 });
     }
 
@@ -44,7 +56,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Account not found." }, { status: 404 });
     }
 
-    // Mark email as verified and delete token in parallel
+    // Mark email as verified and delete all tokens in parallel
     await Promise.all([
       db.user.update({
         where: { id: user.id },

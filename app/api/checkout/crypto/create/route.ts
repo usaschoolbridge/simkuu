@@ -5,8 +5,10 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { rateLimit, checkoutLimiter } from "@/lib/rate-limit";
 import { generateQrDataUrl } from "@/lib/fulfillment";
-import { createPayment, coinMeta, NOWPAYMENTS_API_KEY } from "@/lib/payments/nowpayments";
+import { createPayment, coinMeta, NOWPAYMENTS_API_KEY, COIN_META } from "@/lib/payments/nowpayments";
 import { sendCryptoOrderPlaced } from "@/lib/email";
+
+const ALLOWED_CURRENCIES = new Set(Object.keys(COIN_META));
 
 const schema = z.object({
   planId: z.string().min(1),
@@ -19,17 +21,24 @@ const schema = z.object({
   compat: z.string().optional(),
 });
 
-/** Build a crypto URI so wallet apps auto-fill the address when scanned. */
-function buildCryptoPayUri(payCurrency: string, address: string, amount: number, extraId?: string | null): string {
+function buildCryptoPayUri(
+  payCurrency: string,
+  address: string,
+  amount: number,
+  extraId?: string | null
+): string {
   const c = payCurrency.toLowerCase();
   if (c === "btc")  return `bitcoin:${address}?amount=${amount}`;
   if (c === "ltc")  return `litecoin:${address}?amount=${amount}`;
   if (c === "doge") return `dogecoin:${address}?amount=${amount}`;
   if (c === "sol")  return `solana:${address}?amount=${amount}`;
   if (c === "trx" || c === "usdttrc20") {
-    return extraId ? `tron:${address}?amount=${amount}&memo=${extraId}` : `tron:${address}?amount=${amount}`;
+    return extraId
+      ? `tron:${address}?amount=${amount}&memo=${extraId}`
+      : `tron:${address}?amount=${amount}`;
   }
-  if (c === "eth" || c.includes("erc20") || c === "usdc") return `ethereum:${address}?value=${amount}`;
+  if (c === "eth" || c.includes("erc20") || c === "usdc")
+    return `ethereum:${address}?value=${amount}`;
   return `${c.replace(/[0-9].*$/, "")}:${address}?amount=${amount}`;
 }
 
@@ -49,9 +58,17 @@ export async function POST(req: NextRequest) {
 
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "Invalid input" },
+      { status: 400 }
+    );
   }
   const { planId, email, name, phone, country, payCurrency, couponCode, compat } = parsed.data;
+
+  // ── Currency allowlist ────────────────────────────────────────────────────
+  if (!ALLOWED_CURRENCIES.has(payCurrency.toLowerCase())) {
+    return NextResponse.json({ error: "Unsupported cryptocurrency." }, { status: 400 });
+  }
 
   try {
     const plan = await db.plan.findUnique({ where: { id: planId }, include: { carrier: true } });
@@ -59,33 +76,61 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Plan not available" }, { status: 404 });
     }
 
-    // ── Backend inventory check ───────────────────────────────────────────────
+    // ── Inventory check ───────────────────────────────────────────────────────
     const availableCount = await db.inventoryItem.count({
       where: { planId, status: "AVAILABLE" },
     });
     if (availableCount === 0) {
       return NextResponse.json(
         { error: "This plan is currently out of stock. Please choose a different plan." },
-        { status: 409 },
+        { status: 409 }
       );
     }
 
-    // ── Coupon validation ─────────────────────────────────────────────────────
+    // ── Coupon validation + atomic increment ──────────────────────────────────
+    // We validate and increment in one atomic updateMany to prevent race
+    // conditions where concurrent requests all pass the usedCount < maxUses check.
     let coupon = null;
     let discountAmount = 0;
+
     if (couponCode) {
-      coupon = await db.coupon.findUnique({ where: { code: couponCode.toUpperCase().trim() } });
+      const rawCoupon = await db.coupon.findUnique({
+        where: { code: couponCode.toUpperCase().trim() },
+      });
+
       if (
-        coupon && coupon.isActive &&
-        !(coupon.expiresAt && new Date(coupon.expiresAt) < new Date()) &&
-        !(coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses)
+        rawCoupon &&
+        rawCoupon.isActive &&
+        !(rawCoupon.expiresAt && new Date(rawCoupon.expiresAt) < new Date()) &&
+        !(rawCoupon.maxUses !== null && rawCoupon.usedCount >= rawCoupon.maxUses)
       ) {
         const planPrice = Number(plan.price);
-        if (!coupon.minOrderAmount || planPrice >= Number(coupon.minOrderAmount)) {
-          if (coupon.applicablePlans.length === 0 || coupon.applicablePlans.includes(planId)) {
-            discountAmount = coupon.discountType === "PERCENTAGE"
-              ? (planPrice * Number(coupon.discountValue)) / 100
-              : Math.min(Number(coupon.discountValue), planPrice);
+        if (!rawCoupon.minOrderAmount || planPrice >= Number(rawCoupon.minOrderAmount)) {
+          if (rawCoupon.applicablePlans.length === 0 || rawCoupon.applicablePlans.includes(planId)) {
+            // Atomic increment — only succeeds if still under the limit
+            const atomicResult = await db.coupon.updateMany({
+              where: {
+                id: rawCoupon.id,
+                isActive: true,
+                ...(rawCoupon.maxUses !== null
+                  ? { usedCount: { lt: rawCoupon.maxUses } }
+                  : {}),
+              },
+              data: { usedCount: { increment: 1 } },
+            });
+
+            if (atomicResult.count === 0) {
+              return NextResponse.json(
+                { error: "This coupon has reached its usage limit." },
+                { status: 409 }
+              );
+            }
+
+            coupon = rawCoupon;
+            discountAmount =
+              rawCoupon.discountType === "PERCENTAGE"
+                ? (planPrice * Number(rawCoupon.discountValue)) / 100
+                : Math.min(Number(rawCoupon.discountValue), planPrice);
             discountAmount = parseFloat(discountAmount.toFixed(2));
           }
         }
@@ -126,10 +171,6 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    if (coupon && discountAmount > 0) {
-      await db.coupon.update({ where: { id: coupon.id }, data: { usedCount: { increment: 1 } } });
-    }
-
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://simkuu.com";
     const payment = await createPayment({
       amount: finalAmount,
@@ -169,8 +210,12 @@ export async function POST(req: NextRequest) {
       usdAmount: finalAmount,
     }).catch((e) => console.error("[crypto-create] order-placed email failed", e));
 
-    // QR encodes full payment URI (address + amount) so wallets auto-fill both
-    const payUri = buildCryptoPayUri(payment.payCurrency, payment.payAddress, payment.payAmount, payment.payinExtraId);
+    const payUri = buildCryptoPayUri(
+      payment.payCurrency,
+      payment.payAddress,
+      payment.payAmount,
+      payment.payinExtraId
+    );
     const qrDataUrl = await generateQrDataUrl(payUri).catch(() => null);
 
     return NextResponse.json({
@@ -191,6 +236,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("[crypto-create]", err);
-    return NextResponse.json({ error: "Could not create the crypto payment. Please try again." }, { status: 502 });
+    return NextResponse.json(
+      { error: "Could not create the crypto payment. Please try again." },
+      { status: 502 }
+    );
   }
 }
