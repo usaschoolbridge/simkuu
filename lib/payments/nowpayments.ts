@@ -203,6 +203,34 @@ export interface EstimateResult {
   currencyFrom: string;
 }
 
+/**
+ * Minimum USD amount NOWPayments will accept for a given pay currency.
+ * Returns null if the API can't be reached (caller decides how to proceed).
+ * NOWPayments returns min_amount in the crypto; we convert to USD via estimate.
+ */
+export async function getMinPaymentUsd(payCurrency: string): Promise<number | null> {
+  try {
+    const cur = payCurrency.toLowerCase();
+    const data = await npGet<{ min_amount?: number; fiat_equivalent?: number }>(
+      `/min-amount?currency_from=${cur}&currency_to=${cur}&fiat_equivalent=usd`
+    );
+    // Prefer the fiat_equivalent (USD) when present.
+    if (typeof data.fiat_equivalent === "number" && data.fiat_equivalent > 0) {
+      return data.fiat_equivalent;
+    }
+    if (typeof data.min_amount === "number" && data.min_amount > 0) {
+      // Convert the crypto min into USD.
+      const est = await npGet<{ estimated_amount: number }>(
+        `/estimate?amount=${data.min_amount}&currency_from=${cur}&currency_to=usd`
+      );
+      return est.estimated_amount > 0 ? est.estimated_amount : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /** How much crypto is needed to cover `amount` USD. */
 export async function getEstimate(
   amount: number,

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { rateLimit, checkoutLimiter } from "@/lib/rate-limit";
 import { generateQrDataUrl } from "@/lib/fulfillment";
-import { createPayment, coinMeta, NOWPAYMENTS_API_KEY, COIN_META } from "@/lib/payments/nowpayments";
+import { createPayment, coinMeta, getMinPaymentUsd, NOWPAYMENTS_API_KEY, COIN_META } from "@/lib/payments/nowpayments";
 import { sendCryptoOrderPlaced } from "@/lib/email";
 
 const ALLOWED_CURRENCIES = new Set(Object.keys(COIN_META));
@@ -142,6 +142,29 @@ export async function POST(req: NextRequest) {
     const taxAmount = parseFloat((priceAfterDiscount * TAX_RATE).toFixed(2));
     const finalAmount = parseFloat((priceAfterDiscount + taxAmount).toFixed(2));
 
+    // Preflight: NOWPayments rejects payments below a per-coin minimum (network
+    // fees make tiny amounts uneconomical). A deep coupon can push the total
+    // under that floor — catch it here with a clear message instead of a
+    // generic "could not create payment", and roll back the coupon we claimed.
+    const minUsd = await getMinPaymentUsd(payCurrency);
+    if (minUsd !== null && finalAmount < minUsd) {
+      if (coupon) {
+        await db.coupon.updateMany({
+          where: { id: coupon.id },
+          data: { usedCount: { decrement: 1 } },
+        }).catch(() => {});
+      }
+      return NextResponse.json(
+        {
+          error: `The minimum for ${coinMeta(payCurrency).name} is about $${minUsd.toFixed(2)}. Your total is $${finalAmount.toFixed(2)} — choose a different coin, or pay by card.`,
+          code: "below_min_amount",
+          minUsd,
+          finalAmount,
+        },
+        { status: 400 }
+      );
+    }
+
     const cleanEmail = email.toLowerCase().trim();
     const user = await db.user.upsert({
       where: { email: cleanEmail },
@@ -236,6 +259,18 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("[crypto-create]", err);
+    // Surface NOWPayments' minimum-amount rejection clearly if the preflight
+    // was skipped (e.g. min-amount API was briefly unreachable).
+    const msg = err instanceof Error ? err.message.toLowerCase() : "";
+    if (msg.includes("amount") && (msg.includes("minimal") || msg.includes("minimum") || msg.includes("too small") || msg.includes("less than"))) {
+      return NextResponse.json(
+        {
+          error: "Your total is below the minimum for this coin. Choose a different cryptocurrency, remove the coupon, or pay by card.",
+          code: "below_min_amount",
+        },
+        { status: 400 }
+      );
+    }
     return NextResponse.json(
       { error: "Could not create the crypto payment. Please try again." },
       { status: 502 }
